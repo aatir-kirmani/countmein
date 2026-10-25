@@ -34,6 +34,13 @@ function nextDay(date: string) {
   return `${n.getUTCFullYear()}-${pad(n.getUTCMonth() + 1)}-${pad(n.getUTCDate())}`;
 }
 
+type IdResult = { data: { id: string } | null; error: { message: string } | null };
+
+/** Reject if a request takes longer than `ms` so the form never spins forever. */
+function withTimeout<T>(p: PromiseLike<T>, ms = 20000): Promise<T> {
+  return Promise.race([Promise.resolve(p), new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms))]);
+}
+
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "series";
 }
@@ -85,6 +92,7 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
   const router = useRouter();
   const { toast } = useApp();
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [tried, setTried] = useState(false);
 
   // Browser-dependent values (time zone, zone list, today's date) are filled in after mount so server and client HTML match.
@@ -176,15 +184,16 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
       document.querySelector("[aria-invalid='true'], [data-invalid='true']")?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
+    if (uploading) return toast("Hang on, your photos or video are still uploading", { kind: "error" });
     setBusy(true);
-
+    try {
     let seriesId: string | null = f.seriesMode === "existing" ? f.series_id || null : null;
     if (f.seriesMode === "new") {
-      const { data, error } = await supabase.from("event_series")
+      const { data, error } = await withTimeout<IdResult>(supabase.from("event_series")
         .insert({ organizer_id: userId, name: f.new_series.trim(), slug: `${slugify(f.new_series)}-${Math.random().toString(36).slice(2, 6)}`, city: f.city.trim() || null })
-        .select("id").single();
-      if (error) { setBusy(false); return toast(error.message, { kind: "error" }); }
-      seriesId = data.id;
+        .select("id").single());
+      if (error) return toast(error.message, { kind: "error" });
+      seriesId = data!.id;
     }
 
     const row = {
@@ -211,13 +220,12 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
       registration_questions: f.questions.map((q) => ({ id: q.id, label: q.label.trim().slice(0, 140), required: q.required })),
     };
 
-    const res = event
-      ? await supabase.from("events").update(row).eq("id", event.id).select("id").single()
-      : await supabase.from("events").insert({ ...row, organizer_id: userId }).select("id").single();
-    setBusy(false);
+    const res = await withTimeout<IdResult>(event
+      ? supabase.from("events").update(row).eq("id", event.id).select("id").single()
+      : supabase.from("events").insert({ ...row, organizer_id: userId }).select("id").single());
     if (res.error) return toast(res.error.message, { kind: "error" });
     toast(event ? "Saved. Looking good." : "Your event is live. Time to print that QR!", { kind: "success" });
-    if (!event) return router.push(`/organizer/${res.data.id}`);
+    if (!event) return router.push(`/organizer/${res.data!.id}`);
     const moved = row.starts_at !== new Date(event.starts_at).toISOString() || row.ends_at !== new Date(event.ends_at).toISOString() || row.timezone !== event.timezone;
     const relocated = (row.venue ?? "") !== (event.venue ?? "") || (row.city ?? "") !== (event.city ?? "") || (row.maps_url ?? "") !== (event.maps_url ?? "");
     if ((moved || relocated) && !event.cancelled_at) {
@@ -225,6 +233,13 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
       setNotifyOpen(true);
     }
     router.refresh();
+    } catch (err) {
+      toast(err instanceof Error && err.message === "timeout"
+        ? "Saving is taking too long. Check your connection and try again."
+        : "Something went wrong while saving. Please try again.", { kind: "error" });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const sendNotify = async () => {
@@ -372,6 +387,7 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
             images={f.images}
             video={f.video_url}
             onChange={({ images, video }) => patch({ images, video_url: video })}
+            onBusyChange={setUploading}
           />
           {show("images") && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{show("images")}</p>}
         </div>
@@ -490,8 +506,8 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
         <p className="hidden min-w-0 flex-1 truncate text-sm text-zinc-600 dark:text-zinc-400 sm:block">
           {tried && firstError ? <span className="font-medium text-red-600">{firstError}</span> : fmtRange(range, f.timezone)}
         </p>
-        <button className="btn-primary w-full sm:w-auto sm:min-w-[200px]" disabled={busy}>
-          {busy ? "Saving…" : event ? "Save changes" : "Create event 🎉"}
+        <button className="btn-primary w-full sm:w-auto sm:min-w-[200px]" disabled={busy || uploading}>
+          {busy ? "Saving…" : uploading ? "Uploading media…" : event ? "Save changes" : "Create event 🎉"}
         </button>
       </StickyActions>
 

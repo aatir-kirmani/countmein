@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export const MAX_EVENT_IMAGES = 11; // cover + up to 10 gallery images
@@ -11,11 +11,19 @@ const MAX_VIDEO_MB = 50;
  * Files go to the public "media" bucket under the organizer's folder.
  */
 export function EventMediaEditor({
-  userId, images, video, onChange,
-}: { userId: string; images: string[]; video: string | null; onChange: (v: { images: string[]; video: string | null }) => void }) {
+  userId, images, video, onChange, onBusyChange,
+}: {
+  userId: string; images: string[]; video: string | null;
+  onChange: (v: { images: string[]; video: string | null }) => void;
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const supabase = createClient();
   const [uploading, setUploading] = useState(0);
   const [videoBusy, setVideoBusy] = useState(false);
+  // Latest values, so an upload that finishes late never overwrites another one.
+  const latest = useRef({ images, video });
+  latest.current = { images, video };
+  useEffect(() => { onBusyChange?.(uploading > 0 || videoBusy); }, [uploading, videoBusy, onBusyChange]);
   const [err, setErr] = useState<string | null>(null);
 
   const put = async (file: File) => {
@@ -40,7 +48,7 @@ export function EventMediaEditor({
       try { urls.push(await put(f)); } catch (e) { setErr((e as Error).message); }
       setUploading((n) => n - 1);
     }
-    onChange({ images: [...images, ...urls], video });
+    onChange({ images: [...latest.current.images, ...urls], video: latest.current.video });
   };
 
   const addVideo = async (file: File) => {
@@ -48,7 +56,7 @@ export function EventMediaEditor({
     if (!file.type.startsWith("video/")) return setErr("Please choose a video file (MP4, MOV or WebM).");
     if (file.size > MAX_VIDEO_MB * 1024 * 1024) return setErr(`Video must be under ${MAX_VIDEO_MB} MB.`);
     setVideoBusy(true);
-    try { onChange({ images, video: await put(file) }); } catch (e) { setErr((e as Error).message); }
+    try { const url = await put(file); onChange({ images: latest.current.images, video: url }); } catch (e) { setErr((e as Error).message); }
     setVideoBusy(false);
   };
 

@@ -6,7 +6,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
-  { href: "/", label: "Home", icon: "M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5" },
+  { href: "/events", label: "Events", icon: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm3.5-12.5-2 5-5 2 2-5 5-2Z" },
   { href: "/organizer", label: "Host", icon: "M12 3v4M5.6 5.6l2.8 2.8M3 12h4M18.4 5.6l-2.8 2.8M21 12h-4M8 21l4-9 4 9M9.5 17.5h5" },
   { href: "/scan", label: "Scan", icon: "M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10" },
   { href: "/inbox", label: "Inbox", icon: "M4 6h16v12H4zM4 7l8 6 8-6" },
@@ -47,7 +47,7 @@ export function Nav() {
           <nav className="flex items-center gap-1" aria-label="Main">
             {user ? (
               <div className="mr-1 hidden items-center gap-0.5 rounded-2xl bg-zinc-100/80 p-1 sm:flex dark:bg-zinc-900/80">
-                {ITEMS.filter((i) => i.href !== "/").map((i) => {
+                {ITEMS.map((i) => {
                   const active = isActive(i.href);
                   return (
                     <Link
@@ -65,7 +65,10 @@ export function Nav() {
                 })}
               </div>
             ) : path.startsWith("/login") || path.startsWith("/auth") ? null : (
-              <Link href={path === "/" ? "/login" : `/login?next=${encodeURIComponent(path)}`} className="btn-primary btn-sm">Sign in</Link>
+              <>
+                <Link href="/events" className={cn("btn-ghost btn-sm", isActive("/events") && "text-brand dark:text-violet-300")}>Events</Link>
+                <Link href={path === "/" ? "/login" : `/login?next=${encodeURIComponent(path)}`} className="btn-primary btn-sm">Sign in</Link>
+              </>
             )}
             <ThemeToggle />
           </nav>

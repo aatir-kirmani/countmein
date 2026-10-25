@@ -85,17 +85,23 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             <TicketCode />
           </div>
 
+          <div className="mt-6 flex animate-rise flex-wrap items-center justify-center gap-3 text-sm [animation-delay:320ms] lg:justify-start">
+            <Link href="/events" className="font-semibold text-zinc-900 underline decoration-lime-400 decoration-[3px] underline-offset-4 hover:decoration-brand dark:text-white">
+              Browse open events
+            </Link>
+            <span className="text-zinc-400" aria-hidden>/</span>
           {!signedIn && (
-            <div className="mt-6 flex animate-rise flex-wrap items-center justify-center gap-3 text-sm [animation-delay:320ms] lg:justify-start">
-              <Link href="/login" className="font-semibold text-zinc-900 underline decoration-lime-400 decoration-[3px] underline-offset-4 hover:decoration-brand dark:text-white">
-                Sign in to get ready
+            <>
+              <Link href="/login" className="font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
+                Sign in
               </Link>
               <span className="text-zinc-400" aria-hidden>/</span>
-              <Link href="/organizer/new" className="font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
-                Host an event →
-              </Link>
-            </div>
+            </>
           )}
+            <Link href="/organizer/new" className="font-semibold text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
+              Host an event →
+            </Link>
+          </div>
         </div>
 
         <div className="relative animate-rise [animation-delay:200ms]">
@@ -292,7 +298,7 @@ function MyEvents({ events }: { events: MyEvent[] }) {
     <section className="mx-auto max-w-md space-y-3 py-10">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-extrabold">Your events</h2>
-        <Link href="/organizer/new" className="text-sm font-semibold text-brand dark:text-violet-400">Host one →</Link>
+        <Link href="/events" className="text-sm font-semibold text-brand dark:text-violet-400">Browse events →</Link>
       </div>
       {events.length === 0 ? (
         <div className="card p-6 text-center">
