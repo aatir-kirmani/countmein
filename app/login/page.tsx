@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -113,6 +114,11 @@ function LoginInner() {
 
       <p className="relative mt-5 text-center text-xs text-zinc-500 dark:text-zinc-400">
         🔒 Your email and phone stay private until you match with someone.
+      </p>
+      <p className="relative mt-2 text-center text-xs text-zinc-500 dark:text-zinc-400">
+        By continuing you agree to our{" "}
+        <Link href="/terms" className="font-semibold underline underline-offset-2 hover:text-brand">Terms</Link> and{" "}
+        <Link href="/privacy" className="font-semibold underline underline-offset-2 hover:text-brand">Privacy Policy</Link>.
       </p>
     </div>
   );

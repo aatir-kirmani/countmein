@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DeleteAccount } from "@/components/a/DeleteAccount";
 import { redirect } from "next/navigation";
 import { getProfile } from "@/lib/supabase/server";
 import { ProfileEditor } from "@/components/a/ProfileEditor";
@@ -160,6 +161,8 @@ export default async function MePage() {
           ))}
         </section>
       )}
+
+      <DeleteAccount />
     </div>
   );
 }
