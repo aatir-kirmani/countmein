@@ -5,7 +5,8 @@ export function cn(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(" ");
 }
 
-export function eventStatus(e: Pick<EventRow, "status" | "starts_at" | "ends_at">) {
+export function eventStatus(e: Pick<EventRow, "status" | "starts_at" | "ends_at"> & { cancelled_at?: string | null }) {
+  if (e.cancelled_at) return "cancelled";
   const now = Date.now();
   if (e.status === "ended" || now >= new Date(e.ends_at).getTime()) return "ended";
   if (e.status === "live" || now >= new Date(e.starts_at).getTime()) return "live";
@@ -24,8 +25,14 @@ export function siteUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
 }
 
-export function fmtDate(d: string) {
-  return new Date(d).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+/** Pass the event's time zone to show times where the event happens (defaults to the viewer's zone). */
+export function fmtDate(d: string, timeZone?: string) {
+  const opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  try {
+    return new Date(d).toLocaleString(undefined, timeZone ? { ...opts, timeZone } : opts);
+  } catch {
+    return new Date(d).toLocaleString(undefined, opts);
+  }
 }
 
 export function timeAgo(d: string) {

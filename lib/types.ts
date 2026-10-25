@@ -45,6 +45,54 @@ export interface EventRow {
   creem_product_price_cents?: number | null;
   currency: string;
   recap_sent: boolean;
+  timezone: string;
+  require_approval: boolean;
+  waitlist_enabled: boolean;
+  registration_open: boolean;
+  registration_questions: RegistrationQuestion[];
+  show_guest_list: boolean;
+  page_views: number;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  reminder_sent: boolean;
+  created_at: string;
+}
+
+export interface RegistrationQuestion {
+  id: string;
+  label: string;
+  required: boolean;
+}
+
+export type RegistrationStatus = "going" | "pending" | "waitlist" | "declined" | "cancelled";
+
+export interface EventRegistration {
+  id: string;
+  event_id: string;
+  user_id: string;
+  status: RegistrationStatus;
+  answers: Record<string, string>;
+  decided_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventHost {
+  event_id: string;
+  user_id: string;
+  role: "cohost" | "manager";
+  show_on_page: boolean;
+  created_at: string;
+}
+
+export interface EventMessage {
+  id: string;
+  event_id: string;
+  author_id: string | null;
+  subject: string;
+  body: string;
+  audience: "all" | "going" | "checked_in" | "pending" | "waitlist";
+  emailed_count: number;
   created_at: string;
 }
 
