@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
@@ -74,9 +75,17 @@ export function TicketCode() {
           >
             {going ? "Opening the doors…" : ready ? <>Let me in <span aria-hidden>→</span></> : `${6 - code.length} more character${6 - code.length === 1 ? "" : "s"}`}
           </button>
-          <p id="event-code-hint" className="mt-3 text-center text-xs text-zinc-600 dark:text-zinc-400">
-            or just point your camera at the QR code by the door
-          </p>
+          <div className="mt-3 flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400" aria-hidden>
+            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />or<span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+          </div>
+          <Link
+            href="/scan"
+            className="mt-3 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl bg-zinc-900 text-sm font-bold text-white transition hover:-translate-y-0.5 dark:bg-white dark:text-zinc-900"
+          >
+            <svg aria-hidden viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10" /></svg>
+            Scan the QR code
+          </Link>
+          <p id="event-code-hint" className="sr-only">Enter the 6-character code shown at the venue, or scan the QR code.</p>
         </div>
       </div>
     </form>

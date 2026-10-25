@@ -24,9 +24,11 @@ export function ProfileEditor({ profile, contact }: { profile: Profile; contact:
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    const uname = username.toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (uname.length < 2) return toast("Usernames need at least 2 letters, numbers or underscores", { kind: "error" });
+    if (skills.length === 0) return toast("Pick at least one skill so founders can find you", { kind: "error" });
     setBusy(true);
     const { contact_phone, ...rest } = extras;
-    const uname = username.toLowerCase().replace(/[^a-z0-9_]/g, "");
     const [a, b] = await Promise.all([
       supabase.from("profiles").update({ ...rest, bio: rest.bio || null, links: cleanLinks(rest.links), name: name.trim(), username: uname, skills, onboarded: true }).eq("id", profile.id),
       supabase.from("user_contacts").update({ contact_email: email || null, contact_phone: contact_phone || null }).eq("user_id", profile.id),
@@ -34,7 +36,7 @@ export function ProfileEditor({ profile, contact }: { profile: Profile; contact:
     setBusy(false);
     const error = a.error || b.error;
     if (error) toast(error.code === "23505" ? "That username is taken" : error.message, { kind: "error" });
-    else { toast("Profile saved", { kind: "success" }); router.refresh(); }
+    else { setUsername(uname); toast("Profile saved", { kind: "success" }); router.refresh(); }
   };
 
   return (
@@ -46,7 +48,8 @@ export function ProfileEditor({ profile, contact }: { profile: Profile; contact:
         </div>
         <div>
           <label htmlFor="uname" className="label">Username</label>
-          <input id="uname" required className="input" value={username} onChange={(e) => setUsername(e.target.value)} pattern="[a-zA-Z0-9_]{2,30}" />
+          <input id="uname" required className="input" value={username} maxLength={30} autoCapitalize="none" autoCorrect="off"
+            onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} />
         </div>
       </div>
       <TagPicker label="Skills" options={SKILLS} value={skills} onChange={setSkills} />

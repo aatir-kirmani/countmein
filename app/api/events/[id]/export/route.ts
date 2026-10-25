@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 const esc = (v: unknown) => {
-  const s = v == null ? "" : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = v == null ? "" : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // stop spreadsheet formula injection
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -12,8 +13,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: event } = await supabase.from("events").select("id,code,organizer_id").eq("id", id).eq("organizer_id", user.id).single();
-  if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const [{ data: event }, { data: me }] = await Promise.all([
+    supabase.from("events").select("id,code,organizer_id").eq("id", id).single(),
+    supabase.from("profiles").select("is_admin").eq("id", user.id).single(),
+  ]);
+  if (!event || (event.organizer_id !== user.id && !me?.is_admin)) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const [{ data: checkins }, { data: eps }] = await Promise.all([
     supabase.from("event_checkins").select("user_id, checked_in_at, location_note, profile:profiles(name,username,skills)").eq("event_id", id).order("checked_in_at"),

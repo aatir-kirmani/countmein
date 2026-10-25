@@ -1,5 +1,6 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 
@@ -16,9 +17,12 @@ export const useApp = () => useContext(AppCtx);
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
+  const router = useRouter();
+  const path = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
+  const onboardedFor = useRef<string | null>(null);
 
   const toast = useCallback((text: string, opts?: { href?: string; kind?: Toast["kind"] }) => {
     const id = Date.now() + Math.random();
@@ -49,6 +53,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setPendingCount((a.count ?? 0) + (b.count ?? 0));
   }, [supabase, user]);
 
+  useEffect(() => {
+    if (!user || onboardedFor.current === user.id) return;
+    if (["/onboarding", "/login", "/auth"].some((p) => path.startsWith(p)) || path.endsWith("/board")) return;
+    supabase.from("profiles").select("onboarded").eq("id", user.id).single().then(({ data }: { data: { onboarded: boolean } | null }) => {
+      if (data?.onboarded) onboardedFor.current = user.id;
+      else if (data) router.replace(`/onboarding?next=${encodeURIComponent(path)}`);
+    });
+  }, [supabase, user, path, router]);
+
   // Realtime notifications + presence heartbeat (used to decide whether to email).
   useEffect(() => {
     if (!user) return;
@@ -60,15 +73,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "join_requests" }, (payload: { eventType: string; new: Record<string, unknown> }) => {
         const r = payload.new as { requester_id?: string; direction?: string; status?: string };
         refreshPending();
+        const mine = r.requester_id === user.id;
         if (payload.eventType === "INSERT") {
-          if (r.requester_id === user.id && r.direction === "invite") toast("You've been invited to a project", { href: "/inbox" });
-          else if (r.requester_id !== user.id) toast("New “Count me in” request!", { href: "/inbox", kind: "success" });
-        } else if (payload.eventType === "UPDATE" && r.requester_id === user.id && r.direction === "request") {
-          if (r.status === "accepted") toast("🎉 Your request was accepted!", { href: "/inbox", kind: "success" });
-          else if (r.status === "interested") toast("The founder wants to talk first. Check your inbox.", { href: "/inbox" });
-          else if (r.status === "declined") toast("A request was declined", { href: "/inbox" });
-        } else if (payload.eventType === "UPDATE" && r.requester_id !== user.id && r.direction === "invite" && r.status === "accepted") {
-          toast("🎉 Your invite was accepted!", { href: "/inbox", kind: "success" });
+          if (r.direction === "invite" && mine) toast("You've been invited to a project!", { href: "/inbox", kind: "success" });
+          else if (r.direction === "request" && !mine) toast("New “Count me in” request!", { href: "/inbox", kind: "success" });
+        } else if (payload.eventType === "UPDATE") {
+          if (r.direction === "request" && mine) {
+            if (r.status === "accepted") toast("🎉 Your request was accepted!", { href: "/inbox", kind: "success" });
+            else if (r.status === "interested") toast("The founder wants to talk first. Check your inbox.", { href: "/inbox" });
+            else if (r.status === "declined") toast("A request was declined", { href: "/inbox" });
+          } else if (r.direction === "invite" && !mine) {
+            if (r.status === "accepted") toast("🎉 Your invite was accepted!", { href: "/inbox", kind: "success" });
+            else if (r.status === "declined") toast("An invite was declined", { href: "/inbox" });
+          }
         }
       })
       .subscribe();

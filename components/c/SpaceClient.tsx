@@ -38,6 +38,12 @@ export function SpaceClient({ project, userId }: { project: Proj; userId: string
       .eq("project_id", project.id)
       .order("joined_at");
     const rows = (data ?? []) as unknown as Member[];
+    // Removed by the founder (or left from another tab): send them out with an explanation.
+    if (rows.length && !rows.some((m) => m.user_id === userId)) {
+      toast("You're no longer a member of this project.");
+      router.replace(`/p/${project.id}`);
+      return;
+    }
     setMembers(rows);
     const entries = await Promise.all(
       rows.map(async (m) => {
@@ -46,7 +52,7 @@ export function SpaceClient({ project, userId }: { project: Proj; userId: string
       })
     );
     setContacts(Object.fromEntries(entries));
-  }, [supabase, project.id]);
+  }, [supabase, project.id, userId, toast, router]);
 
   useEffect(() => {
     loadMembers();

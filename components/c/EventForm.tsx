@@ -3,10 +3,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
-import { ImageUpload } from "@/components/ui/ImageUpload";
+import { EventMediaEditor } from "@/components/EventMediaEditor";
 import type { EventRow } from "@/lib/types";
 
 type Series = { id: string; name: string };
+
+// Paid tickets need Stripe configured on the server; set NEXT_PUBLIC_STRIPE_ENABLED=true alongside the Stripe keys.
+const STRIPE_ENABLED = process.env.NEXT_PUBLIC_STRIPE_ENABLED === "true";
 
 const toLocal = (iso?: string) => {
   if (!iso) return "";
@@ -30,19 +33,21 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
     ends_at: toLocal(event?.ends_at),
     venue: event?.venue ?? "",
     city: event?.city ?? "",
-    cover_url: event?.cover_url ?? null as string | null,
+    images: [event?.cover_url, ...(event?.gallery_urls ?? [])].filter((u): u is string => !!u),
+    video_url: event?.video_url ?? null as string | null,
     capacity: event?.capacity?.toString() ?? "",
     visibility: event?.visibility ?? "public",
     series_id: event?.series_id ?? "",
     new_series: "",
     price: event ? (event.ticket_price_cents / 100).toString() : "0",
   });
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF((prev) => ({ ...prev, [k]: e.target.value }));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!f.starts_at || !f.ends_at) return toast("Start and end times are required", { kind: "error" });
     if (new Date(f.ends_at) <= new Date(f.starts_at)) return toast("End must be after start", { kind: "error" });
+    if (f.images.length === 0) return toast("Add at least one event photo", { kind: "error" });
     setBusy(true);
 
     let seriesId: string | null = f.series_id && f.series_id !== "__new" ? f.series_id : null;
@@ -61,11 +66,13 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
       ends_at: new Date(f.ends_at).toISOString(),
       venue: f.venue.trim() || null,
       city: f.city.trim() || null,
-      cover_url: f.cover_url,
+      cover_url: f.images[0],
+      gallery_urls: f.images.slice(1),
+      video_url: f.video_url,
       capacity: f.capacity ? parseInt(f.capacity, 10) : null,
       visibility: f.visibility,
       series_id: seriesId,
-      ticket_price_cents: Math.round((parseFloat(f.price) || 0) * 100),
+      ticket_price_cents: STRIPE_ENABLED ? Math.round((parseFloat(f.price) || 0) * 100) : 0,
     };
 
     const res = event
@@ -117,10 +124,12 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
             <option value="invite_only">Invite-only: invited emails</option>
           </select>
         </div>
+        {STRIPE_ENABLED && (
         <div>
-          <label className="label" htmlFor="ev-price">Ticket price (USD, 0 = free)</label>
-          <input id="ev-price" type="number" min={0} step="0.01" inputMode="decimal" className="input" value={f.price} onChange={set("price")} />
-        </div>
+            <label className="label" htmlFor="ev-price">Ticket price (USD, 0 = free)</label>
+            <input id="ev-price" type="number" min={0} step="0.01" inputMode="decimal" className="input" value={f.price} onChange={set("price")} />
+          </div>
+        )}
         <div>
           <label className="label" htmlFor="ev-series">Series (recurring)</label>
           <select id="ev-series" className="input" value={f.series_id} onChange={set("series_id")}>
@@ -133,8 +142,13 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
           )}
         </div>
       </div>
-      <ImageUpload label="Cover image" userId={userId} value={f.cover_url} onChange={(url) => setF({ ...f, cover_url: url })} />
-      <button className="btn-primary w-full" disabled={busy || !f.name.trim()}>{busy ? "Saving…" : event ? "Save changes" : "Create event"}</button>
+      <EventMediaEditor
+        userId={userId}
+        images={f.images}
+        video={f.video_url}
+        onChange={({ images, video }) => setF((prev) => ({ ...prev, images, video_url: video }))}
+      />
+      <button className="btn-primary w-full" disabled={busy || !f.name.trim() || f.images.length === 0}>{busy ? "Saving…" : event ? "Save changes" : "Create event"}</button>
     </form>
   );
 }

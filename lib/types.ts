@@ -32,6 +32,8 @@ export interface EventRow {
   venue: string | null;
   city: string | null;
   cover_url: string | null;
+  gallery_urls: string[];
+  video_url: string | null;
   code: string;
   visibility: "public" | "unlisted" | "invite_only";
   capacity: number | null;

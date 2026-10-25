@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { sendEventRecap } from "@/lib/recap";
+import { emailConfigured, sendEventRecap } from "@/lib/recap";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -11,7 +11,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     const sent = await sendEventRecap(id);
-    return NextResponse.json({ sent });
+    return NextResponse.json({ sent, configured: emailConfigured() });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

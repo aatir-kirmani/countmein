@@ -17,8 +17,10 @@ export function BlockButton({ targetId, blocked: initial }: { targetId: string; 
       : await supabase.from("blocks").insert({ blocker_id: user.id, blocked_id: targetId });
     if (error) return toast(error.message, { kind: "error" });
     setBlocked(!blocked);
-    toast(blocked ? "Unblocked" : "Blocked");
-    router.refresh();
+    toast(blocked ? "Unblocked" : "Blocked. You can unblock them from your profile.");
+    // Blocking hides their profile from you too, so leave their page.
+    if (!blocked && window.location.pathname.startsWith("/u/")) router.push("/me");
+    else router.refresh();
   };
   return <button className="btn-ghost text-sm" onClick={toggle}>{blocked ? "Unblock" : "Block"}</button>;
 }

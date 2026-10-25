@@ -12,8 +12,12 @@ function layout(title: string, body: string) {
 const stat = (label: string, n: number) =>
   `<td style="padding:12px;text-align:center;border:1px solid #e4e4e7;border-radius:8px"><div style="font-size:24px;font-weight:700">${n}</div><div style="font-size:12px;color:#71717a">${label}</div></td>`;
 
-/** Emails every attendee their personal recap and the organizer the event summary. Returns emails sent. */
+export const emailConfigured = () => !!process.env.RESEND_API_KEY;
+
+/** Emails every attendee their personal recap and the organizer the event summary. Returns emails sent.
+ *  Without RESEND_API_KEY nothing is sent and the event is not marked, so recaps go out once email is configured. */
 export async function sendEventRecap(eventId: string): Promise<number> {
+  if (!emailConfigured()) return 0;
   const db = createServiceClient();
   const site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
@@ -60,8 +64,7 @@ ${joinedList}
 <p><a href="${site}/inbox" style="display:inline-block;background:#6d28d9;color:#fff;padding:10px 16px;border-radius:10px;text-decoration:none">Open your inbox</a></p>
 <p style="font-size:13px;color:#71717a">The board stays browsable for 7 days: <a href="${site}/e/${event.code}">${site}/e/${event.code}</a></p>`
     );
-    await sendEmail({ to, subject: `Your Countmein recap: ${event.name}`, html });
-    sent++;
+    if (await sendEmail({ to, subject: `Your Countmein recap: ${event.name}`, html })) sent++;
   }
 
   const orgEmail = emailOf.get(event.organizer_id);
@@ -72,8 +75,7 @@ ${joinedList}
 <tr>${stat("Requests", reqs.length)}${stat("Matches", ms.length)}</tr></table>
 <p><a href="${site}/api/events/${event.id}/export">Download attendee CSV</a> · <a href="${site}/organizer/${event.id}">Event dashboard</a></p>`
     );
-    await sendEmail({ to: orgEmail, subject: `Organizer recap: ${event.name}`, html });
-    sent++;
+    if (await sendEmail({ to: orgEmail, subject: `Organizer recap: ${event.name}`, html })) sent++;
   }
 
   await db.from("events").update({ recap_sent: true }).eq("id", eventId);

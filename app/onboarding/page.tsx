@@ -25,8 +25,11 @@ function OnboardingInner() {
       if (!user) return router.replace(`/login?next=${encodeURIComponent(next)}`);
       setUserId(user.id);
       const { data: p } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+      // GitHub accounts often have no display name; fall back to the handle or email prefix.
+      const meta = (user.user_metadata ?? {}) as Record<string, string | undefined>;
+      const fallbackName = meta.full_name || meta.name || meta.user_name || meta.preferred_username || user.email?.split("@")[0] || "";
       if (p) {
-        setName(p.name ?? ""); setSkills(p.skills ?? []);
+        setName(p.name || fallbackName); setSkills(p.skills ?? []);
         setExtras((x) => ({ ...x, avatar_url: p.avatar_url, bio: p.bio ?? "", links: p.links ?? {}, hours_per_week: p.hours_per_week, looking_for: p.looking_for ?? [] }));
       }
     })();
@@ -36,9 +39,11 @@ function OnboardingInner() {
     e.preventDefault();
     if (!userId) return;
     setBusy(true); setErr(null);
-    const { error } = await supabase.from("profiles").update({ name: name.trim(), skills, onboarded: true }).eq("id", userId);
+    const { data, error } = await supabase.from("profiles").update({ name: name.trim(), skills, onboarded: true }).eq("id", userId).select("id");
     setBusy(false);
-    if (error) setErr(error.message); else setStep(2);
+    if (error) setErr(error.message);
+    else if (!data?.length) setErr("We couldn't find your profile. Sign out and back in, then try again.");
+    else setStep(2);
   };
 
   const saveStep2 = async () => {
@@ -61,13 +66,18 @@ function OnboardingInner() {
       <p className="muted text-xs font-medium">Step {step} of 2</p>
       {step === 1 ? (
         <form onSubmit={saveStep1} className="space-y-5">
-          <h1 className="text-2xl font-bold">Welcome! Quick intro</h1>
+          <div>
+            <h1 className="text-3xl font-extrabold">Hey there 👋</h1>
+            <p className="muted text-sm">Two quick things and you&apos;re on the board.</p>
+          </div>
           <div>
             <label htmlFor="name" className="label">Your name</label>
             <input id="name" required className="input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
           </div>
           <TagPicker label="What are you good at?" options={SKILLS} value={skills} onChange={setSkills} />
-          <button className="btn-primary w-full" disabled={busy || !name.trim() || skills.length === 0}>{busy ? "Saving…" : "Continue"}</button>
+          <button className="btn-primary min-h-[52px] w-full text-base" disabled={busy || !name.trim() || skills.length === 0}>
+            {busy ? "Saving…" : !name.trim() ? "Add your name" : skills.length === 0 ? "Pick at least one skill" : "Continue"}
+          </button>
         </form>
       ) : (
         <div className="space-y-5">

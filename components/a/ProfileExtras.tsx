@@ -18,7 +18,7 @@ export function ProfileExtras({ value, onChange, userId }: { value: Extras; onCh
       <fieldset className="space-y-2">
         <legend className="label">Links</legend>
         {LINK_FIELDS.map((f) => (
-          <input key={f.key} aria-label={f.label} className="input" type="url" inputMode="url" placeholder={`${f.label} URL`}
+          <input key={f.key} aria-label={f.label} className="input" type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" placeholder={`${f.label} URL`}
             value={value.links?.[f.key] ?? ""} onChange={(e) => set("links", { ...value.links, [f.key]: e.target.value })} />
         ))}
       </fieldset>
@@ -50,6 +50,15 @@ export function ProfileExtras({ value, onChange, userId }: { value: Extras; onCh
   );
 }
 
+/** Adds https:// to bare domains like "buildfast.com"; returns null for blanks. */
+export function normalizeUrl(v: string | null | undefined) {
+  const t = (v ?? "").trim();
+  if (!t) return null;
+  return /^https?:\/\//i.test(t) ? t : `https://${t.replace(/^\/+/, "")}`;
+}
+
 export function cleanLinks(links: Extras["links"]) {
-  return Object.fromEntries(Object.entries(links ?? {}).filter(([, v]) => v && v.trim()));
+  return Object.fromEntries(
+    Object.entries(links ?? {}).map(([k, v]) => [k, normalizeUrl(v)] as const).filter(([, v]) => v)
+  );
 }

@@ -123,6 +123,7 @@ export function ProjectDetail({ project, members, me, eventCtx, backCode }: {
           <>
             <h2 className="font-semibold">Open roles</h2>
             {slots.length === 0 && <p className="muted text-sm">No roles listed.</p>}
+            {slots.length > 0 && open.length === 0 && !isOwner && <p className="muted text-sm">All roles are filled right now. Check back later.</p>}
             {slots.map((s) => (
               <div key={s.id} className="card space-y-2 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -155,6 +156,7 @@ export function ProjectDetail({ project, members, me, eventCtx, backCode }: {
           <Link className="btn-primary w-full" href={`/login?next=/p/${project.id}${backCode ? `?e=${backCode}` : ""}`}>Sign in to join</Link>
         )}
         {eventCtx?.ended && !isOwner && <p className="muted text-sm">This event has ended, so requests are closed.</p>}
+        {isMember && !isOwner && <p className="text-sm text-emerald-700 dark:text-emerald-400">✓ You&apos;re on this team.</p>}
         {openReq && (
           <div className="card flex items-center justify-between gap-2 p-4">
             <span className="text-sm">Your request <StatusBadge status={openReq.status} /></span>

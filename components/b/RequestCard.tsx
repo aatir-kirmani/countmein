@@ -37,14 +37,16 @@ export function RequestCard({ r, viewerId, onChanged }: { r: FullRequest; viewer
   // The "other person" from the viewer's perspective.
   const other = isOwner ? r.requester : r.project?.owner ?? null;
 
+  // Wait until any in-flight action settles: an optimistic "accepted" would otherwise fetch before the RPC commits.
   useEffect(() => {
+    if (busy) return;
     if (r.status === "accepted" && other) {
       supabase.rpc("get_contact", { p_user: other.id }).then(({ data }: { data: { contact_email: string | null; contact_phone: string | null }[] | null }) => setContact(data?.[0] ?? null));
     }
     if (r.status === "interested" && isCand) {
       supabase.rpc("get_meetup_note", { p_request: r.id }).then(({ data }: { data: string | null }) => setMeetNote(data));
     }
-  }, [supabase, r.status, r.id, other, isCand]);
+  }, [supabase, r.status, r.id, other, isCand, busy]);
 
   const act = async (action: "accept" | "decline" | "interested" | "withdraw", reason?: string) => {
     setBusy(true);
@@ -57,6 +59,7 @@ export function RequestCard({ r, viewerId, onChanged }: { r: FullRequest; viewer
     if (error) { onChanged(r.id, prev); return toast(error.message, { kind: "error" }); }
     if (action !== "withdraw") notify(r.id);
     if (action === "accept") toast("🎉 You're connected! Contact details unlocked.", { kind: "success" });
+    if (action === "interested") toast("They'll see your location note from the event page. Add one there if you haven't (e.g. “table 4, blue shirt”).");
     refreshPending();
   };
 

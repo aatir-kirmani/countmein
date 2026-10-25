@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import { Avatar } from "@/components/ui/Avatar";
+import { ImageUpload } from "@/components/ui/ImageUpload";
 import { EventForm } from "./EventForm";
 import { eventStatus, fmtDate, timeAgo } from "@/lib/utils";
 import type { EventRow } from "@/lib/types";
@@ -24,7 +25,7 @@ export function EventManager(props: {
   const [editing, setEditing] = useState(false);
   const [invites, setInvites] = useState(props.invites.join("\n"));
   const [sponsors, setSponsors] = useState(props.sponsors);
-  const [sp, setSp] = useState({ name: "", url: "", logo_url: "", tier: "supporter" });
+  const [sp, setSp] = useState<{ name: string; url: string; logo_url: string | null; tier: string }>({ name: "", url: "", logo_url: null, tier: "supporter" });
   const [busy, setBusy] = useState(false);
   const st = eventStatus(event);
 
@@ -32,7 +33,12 @@ export function EventManager(props: {
     if (status === "ended" && !confirm("End this event? The board becomes read-only.")) return;
     const patch: Partial<EventRow> = { status };
     if (status === "live" && new Date(event.starts_at) > new Date()) patch.starts_at = new Date().toISOString();
-    if (status === "ended" && new Date(event.ends_at) > new Date()) patch.ends_at = new Date().toISOString();
+    if (status === "ended" && new Date(event.ends_at) > new Date()) {
+      // ends_at must stay after starts_at, so pull the start back when ending an event that hasn't started.
+      const now = Date.now();
+      patch.ends_at = new Date(now).toISOString();
+      if (new Date(event.starts_at).getTime() >= now) patch.starts_at = new Date(now - 60_000).toISOString();
+    }
     const { error } = await supabase.from("events").update(patch).eq("id", event.id);
     if (error) toast(error.message, { kind: "error" });
     else { toast(status === "live" ? "Event is live" : "Event ended"); router.refresh(); }
@@ -51,11 +57,11 @@ export function EventManager(props: {
   const addSponsor = async (e: React.FormEvent) => {
     e.preventDefault();
     const { data, error } = await supabase.from("event_sponsors")
-      .insert({ event_id: event.id, name: sp.name.trim(), url: sp.url.trim() || null, logo_url: sp.logo_url.trim() || null, tier: sp.tier })
+      .insert({ event_id: event.id, name: sp.name.trim(), url: sp.url.trim() || null, logo_url: sp.logo_url, tier: sp.tier })
       .select().single();
     if (error) return toast(error.message, { kind: "error" });
     setSponsors((s) => [...s, data]);
-    setSp({ name: "", url: "", logo_url: "", tier: "supporter" });
+    setSp({ name: "", url: "", logo_url: null, tier: "supporter" });
   };
 
   const delSponsor = async (id: string) => {
@@ -70,7 +76,8 @@ export function EventManager(props: {
     const res = await fetch(`/api/events/${event.id}/recap`, { method: "POST" });
     setBusy(false);
     const body = await res.json().catch(() => ({}));
-    if (res.ok) toast(`Recap sent to ${body.sent ?? 0} people`, { kind: "success" });
+    if (res.ok && body.configured === false) toast("Email isn't set up yet. Add RESEND_API_KEY in Vercel to send recaps.", { kind: "error" });
+    else if (res.ok) toast(`Recap sent to ${body.sent ?? 0} people`, { kind: "success" });
     else toast(body.error || "Failed to send recap", { kind: "error" });
   };
 
@@ -85,6 +92,15 @@ export function EventManager(props: {
 
   return (
     <div className="space-y-6">
+      {event.cover_url && (
+        <div className="relative overflow-hidden rounded-2xl">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={event.cover_url} alt="" className="h-36 w-full object-cover sm:h-48" />
+          <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white">
+            {1 + (event.gallery_urls?.length ?? 0)} photo{(event.gallery_urls?.length ?? 0) ? "s" : ""}{event.video_url ? " · 1 video" : ""}
+          </span>
+        </div>
+      )}
       <div>
         <Link href="/organizer" className="muted text-sm">← All events</Link>
         <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -105,6 +121,7 @@ export function EventManager(props: {
           <div className="flex flex-wrap gap-2">
             <button className="btn-secondary" onClick={() => copy(eventUrl)}>Copy link</button>
             <a className="btn-secondary" href={qr} download={`countmein-${event.code}.png`}>Download QR</a>
+            <Link className="btn-secondary" href={`/organizer/${event.id}/poster`} target="_blank">Print poster</Link>
             <Link className="btn-primary" href={`/e/${event.code}/board`} target="_blank">Open Live Board ↗</Link>
             <Link className="btn-secondary" href={`/e/${event.code}`}>Attendee view</Link>
           </div>
@@ -171,7 +188,9 @@ export function EventManager(props: {
             <option value="supporter">Supporter</option>
           </select>
           <input className="input" type="url" placeholder="Website URL" value={sp.url} onChange={(e) => setSp({ ...sp, url: e.target.value })} aria-label="Sponsor URL" />
-          <input className="input" type="url" placeholder="Logo URL" value={sp.logo_url} onChange={(e) => setSp({ ...sp, logo_url: e.target.value })} aria-label="Logo URL" />
+          <div className="sm:col-span-2">
+            <ImageUpload label="Sponsor logo (optional)" userId={userId} value={sp.logo_url} onChange={(url) => setSp({ ...sp, logo_url: url })} />
+          </div>
           <button className="btn-secondary sm:col-span-2" disabled={!sp.name.trim()}>Add sponsor</button>
         </form>
       </section>

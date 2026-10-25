@@ -8,7 +8,7 @@ Stack: Next.js 15 (App Router) · TypeScript · Tailwind · Supabase (Postgres, 
 
 1. Create a project at https://supabase.com.
 2. Apply the schema, either way:
-   - **SQL editor:** paste `supabase/migrations/0001_init.sql` and run it.
+   - **SQL editor:** paste and run each file in `supabase/migrations/` in order (`0001_init.sql`, `0002_event_media.sql`, then any later ones).
    - **CLI:** `supabase link --project-ref <ref>` then `supabase db push`.
 3. **Auth → URL configuration**
    - Site URL: `https://<your-domain>`
@@ -54,7 +54,7 @@ npx vercel env add ...   # add every variable above for Production
 npx vercel --prod
 ```
 
-`vercel.json` registers a daily cron at `/api/cron` (03:00 UTC; Vercel Hobby allows daily crons only, Pro can switch to hourly). Each run expires requests 48 hours after an event ends, marks finished events as ended, and sends recap emails.
+`vercel.json` registers a daily cron at `/api/cron` (03:00 UTC; Vercel Hobby allows daily crons only, Pro can switch to hourly). Each run expires requests 48 hours after an event ends, marks finished events as ended, and sends recap emails. Recaps are only sent (and events only marked as recapped) once `RESEND_API_KEY` is set, so nothing is lost if you add email later. Organizers can also send a recap any time from the event dashboard.
 
 ## 5. Stripe (paid tickets)
 
@@ -71,4 +71,4 @@ npx vercel --prod
 
 ## Pages
 
-`/` landing · `/login` · `/onboarding` · `/e/[code]` event (Projects / People / My activity) · `/e/[code]/board` projector · `/p/[id]` project · `/u/[username]` profile · `/me` · `/inbox` · `/space/[id]` · `/organizer` · `/organizer/new` · `/organizer/[id]` · `/series/[slug]` · `/admin`
+`/` landing · `/login` · `/onboarding` · `/e/[code]` event (Projects / People / My activity) · `/e/[code]/board` projector · `/p/[id]` project · `/u/[username]` profile · `/me` · `/inbox` · `/space/[id]` · `/organizer` · `/organizer/new` · `/organizer/[id]` · `/organizer/[id]/poster` (printable door poster) · `/series/[slug]` · `/admin`

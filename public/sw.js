@@ -1,5 +1,7 @@
 // Network-first service worker: caches the static shell for flaky venue Wi-Fi.
-const CACHE = "countmein-v1";
+const CACHE = "countmein-v2";
+// Only public-ish pages are kept for offline use; private pages (/me, /inbox, /space, …) are never cached.
+const OFFLINE_OK = (p) => p === "/" || p.startsWith("/e/") || p.startsWith("/p/");
 const SHELL = ["/", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -27,8 +29,10 @@ self.addEventListener("fetch", (e) => {
   }
   if (req.mode === "navigate") {
     e.respondWith(fetch(req).then((res) => {
-      const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(req, copy));
+      if (res.ok && OFFLINE_OK(url.pathname)) {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy));
+      }
       return res;
     }).catch(() => caches.match(req).then((hit) => hit || caches.match("/"))));
   }

@@ -7,6 +7,7 @@ import type { Compensation, Openness, Project, Slot, Stage } from "@/lib/types";
 import { TagPicker } from "@/components/ui/TagPicker";
 import { ImageUpload } from "@/components/ui/ImageUpload";
 import { useApp } from "@/components/Providers";
+import { normalizeUrl } from "./ProfileExtras";
 
 type SlotDraft = { id?: string; specialty: string; description: string; commitment: string; compensation: Compensation; status: Slot["status"] };
 const TECH = ["Next.js", "React", "Node", "Python", "Supabase", "Postgres", "Swift", "Flutter", "AI/LLM", "Stripe", "No-code"];
@@ -35,10 +36,13 @@ export function ProjectForm({ userId, project, slots = [], eventCode }: { userId
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (openness === "specific" && !drafts.some((d) => d.specialty.trim())) {
+      return toast("Add at least one role you need, or choose “Open to anyone”.", { kind: "error" });
+    }
     setBusy(true);
     const row = {
       owner_id: userId, name: name.trim(), pitch: pitch.trim(), description: description || null, stage,
-      link: link || null, logo_url: logo, tech_stack: tech, openness, general_note: openness === "anyone" ? note || null : null,
+      link: normalizeUrl(link), logo_url: logo, tech_stack: tech, openness, general_note: openness === "anyone" ? note || null : null,
     };
     const res = project
       ? await supabase.from("projects").update(row).eq("id", project.id).select("id").single()
@@ -165,7 +169,7 @@ export function ProjectForm({ userId, project, slots = [], eventCode }: { userId
           </div>
           <div>
             <label htmlFor="pl" className="label">Link (website, demo, repo)</label>
-            <input id="pl" type="url" inputMode="url" className="input" value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://" />
+            <input id="pl" type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" className="input" value={link} onChange={(e) => setLink(e.target.value)} placeholder="buildfast.com" />
           </div>
           <ImageUpload label="Logo or screenshot" value={logo} onChange={setLogo} userId={userId} />
           <TagPicker label="Tech stack" options={TECH} value={tech} onChange={setTech} />

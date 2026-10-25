@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getProfile } from "@/lib/supabase/server";
 import { ProfileEditor } from "@/components/a/ProfileEditor";
 import { SignOutButton } from "@/components/a/SignOutButton";
+import { BlockButton } from "@/components/a/BlockButton";
 import { StageBadge } from "@/components/ui/Badges";
 import { Empty } from "@/components/ui/Empty";
 import { eventStatus, fmtDate } from "@/lib/utils";
@@ -12,25 +13,36 @@ export default async function MePage() {
   const { supabase, user, profile } = await getProfile();
   if (!user || !profile) redirect("/login?next=/me");
 
-  const [{ data: contact }, { data: projects }, { data: checkins }, { data: memberships }] = await Promise.all([
+  const [{ data: contact }, { data: projects }, { data: checkins }, { data: memberships }, { data: blocks }] = await Promise.all([
     supabase.from("user_contacts").select("contact_email, contact_phone").eq("user_id", user.id).single(),
     supabase.from("projects").select("*").eq("owner_id", user.id).order("created_at", { ascending: false }),
     supabase.from("event_checkins").select("checked_in_at, events(*)").eq("user_id", user.id).order("checked_in_at", { ascending: false }),
-    supabase.from("project_members").select("role, projects(*)").eq("user_id", user.id).neq("role", "Founder"),
+    supabase.from("project_members").select("role, projects(*)").eq("user_id", user.id),
+    supabase.from("blocks").select("blocked_id, profiles!blocks_blocked_id_fkey(name, username)").eq("blocker_id", user.id),
   ]);
 
   const events = (checkins ?? []).map((c: { events: unknown }) => c.events as EventRow).filter(Boolean);
-  const joined = (memberships ?? []).map((m: { role: string; projects: unknown }) => ({ role: m.role, project: m.projects as Project })).filter((m) => m.project);
+  const joined = (memberships ?? []).map((m: { role: string; projects: unknown }) => ({ role: m.role, project: m.projects as Project })).filter((m) => m.project && m.project.owner_id !== user.id);
+  const blocked = (blocks ?? []).map((b: { blocked_id: string; profiles: unknown }) => ({ id: b.blocked_id, who: b.profiles as { name: string; username: string } | null }));
 
   return (
     <div className="space-y-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">My profile</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-3xl font-extrabold">My profile</h1>
         <div className="flex gap-2">
           <Link href={`/u/${profile.username}`} className="btn-ghost text-sm">View public</Link>
           <SignOutButton />
         </div>
       </div>
+
+      <nav aria-label="Shortcuts" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Link href="/inbox" className="card p-4 text-sm font-semibold transition hover:-translate-y-0.5"><span aria-hidden className="block text-xl">📬</span>Inbox</Link>
+        <Link href="/organizer" className="card p-4 text-sm font-semibold transition hover:-translate-y-0.5"><span aria-hidden className="block text-xl">🎤</span>Host events</Link>
+        <Link href="/me/projects/new" className="card p-4 text-sm font-semibold transition hover:-translate-y-0.5"><span aria-hidden className="block text-xl">🚀</span>New project</Link>
+        {profile.is_admin && (
+          <Link href="/admin" className="card p-4 text-sm font-semibold transition hover:-translate-y-0.5"><span aria-hidden className="block text-xl">🛡️</span>Admin</Link>
+        )}
+      </nav>
 
       <ProfileEditor profile={profile} contact={{ contact_email: contact?.contact_email ?? "", contact_phone: contact?.contact_phone ?? "" }} />
 
@@ -40,7 +52,7 @@ export default async function MePage() {
           <Link href="/me/projects/new" className="btn-primary">+ New project</Link>
         </div>
         {(projects ?? []).length === 0 ? (
-          <Empty title="No projects yet" body="Post what you're building so people can count themselves in." />
+          <Empty title="No projects yet" body="Post what you're building so people can count themselves in." action={<Link href="/me/projects/new" className="btn-primary">Post your first project</Link>} />
         ) : (
           (projects as Project[]).map((p) => (
             <div key={p.id} className="card flex flex-wrap items-center justify-between gap-2 p-4">
@@ -74,7 +86,7 @@ export default async function MePage() {
       <section className="space-y-3">
         <h2 className="text-lg font-semibold">My events</h2>
         {events.length === 0 ? (
-          <p className="muted text-sm">No events yet.</p>
+          <p className="muted text-sm">No events yet. Scan the QR code at your next meetup, or enter the code on the <Link href="/" className="font-medium text-brand underline">home page</Link>.</p>
         ) : (
           events.map((e) => (
             <Link key={e.id} href={`/e/${e.code}`} className="card flex items-center justify-between p-4">
@@ -84,6 +96,18 @@ export default async function MePage() {
           ))
         )}
       </section>
+
+      {blocked.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold">Blocked people</h2>
+          {blocked.map((b) => (
+            <div key={b.id} className="card flex items-center justify-between p-4">
+              <span className="font-medium">{b.who?.name || (b.who ? `@${b.who.username}` : "Blocked user")}</span>
+              <BlockButton targetId={b.id} blocked />
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }

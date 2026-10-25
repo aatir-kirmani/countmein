@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import type { EventRow, Profile, ProjectWithRelations, JoinRequest } from "@/lib/types";
-import { SKILLS, STAGES } from "@/lib/constants";
+import { LOOKING_FOR, SKILLS, STAGES } from "@/lib/constants";
 import { cn, eventStatus, fmtDate, needsMySkills, openSlots } from "@/lib/utils";
 import { ProjectCard, ProjectCardSkeleton } from "@/components/ProjectCard";
 import { Avatar } from "@/components/ui/Avatar";
+import { EventMedia } from "@/components/EventMedia";
 import { Empty } from "@/components/ui/Empty";
 import { StatusBadge } from "@/components/ui/Badges";
 import { Sheet } from "./Sheet";
@@ -16,6 +17,7 @@ import { notify } from "./notify";
 
 type Sponsor = { id: string; name: string; logo_url: string | null; url: string | null; tier: string };
 type Tab = "projects" | "people" | "activity";
+const LOOKING_LABEL: Record<string, string> = Object.fromEntries(LOOKING_FOR.map((l) => [l.value, l.label]));
 
 export function EventView({ event, profile, initialCheckin, hasTicket, justPaid, sponsors }: {
   event: EventRow; profile: Profile | null; initialCheckin: { location_note: string | null } | null;
@@ -39,7 +41,10 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
     setBusy(true);
     const { data, error } = await supabase.from("event_checkins").insert({ event_id: event.id, user_id: profile.id }).select().single();
     setBusy(false);
-    if (error) return toast(error.message.replace(/^.*?: /, ""), { kind: "error" });
+    if (error) {
+      if (error.code === "23505") { setCheckin({ location_note: null }); reload(); return; } // already checked in (another tab)
+      return toast(friendlyCheckinError(error.message), { kind: "error" });
+    }
     setCheckin(data);
     toast("You're checked in! 👋", { kind: "success" });
     reload();
@@ -52,7 +57,7 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
     const j = await res.json().catch(() => ({}));
     setBusy(false);
     if (j.url) window.location.href = j.url;
-    else toast(j.error || "Couldn't start checkout", { kind: "error" });
+    else toast(res.status === 501 ? "Ticket sales aren't set up for this event yet. Ask the organizer to check you in." : j.error || "Couldn't start checkout", { kind: "error" });
   };
 
   const needsTicket = event.ticket_price_cents > 0 && !hasTicket && !isOrganizer;
@@ -61,10 +66,7 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
     <div className="space-y-4">
       {/* Header */}
       <section className="card overflow-hidden">
-        {event.cover_url && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={event.cover_url} alt="" className="h-32 w-full object-cover sm:h-44" />
-        )}
+        <EventMedia event={event} />
         <div className="space-y-2 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn("chip", status === "live" ? "bg-emerald-600 text-white" : status === "ended" ? "bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200" : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200")}>
@@ -75,6 +77,7 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight">{event.name}</h1>
           <p className="muted text-sm">{fmtDate(event.starts_at)}{event.venue ? ` · ${event.venue}` : ""}{event.city ? `, ${event.city}` : ""}</p>
+          {event.capacity && people && <p className="muted text-xs">{Math.max(event.capacity - people.length, 0)} of {event.capacity} spots left</p>}
           {event.description && <p className="whitespace-pre-line text-sm">{event.description}</p>}
           {isOrganizer && (
             <div className="flex flex-wrap gap-2 pt-1">
@@ -108,10 +111,13 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
               {justPaid && <button className="btn-secondary w-full" disabled={busy} onClick={doCheckin}>I&apos;ve paid, check me in</button>}
             </>
           ) : (
-            <button className="btn-primary h-14 w-full text-base" disabled={busy} onClick={doCheckin}>{busy ? "Checking in…" : "Check in: I'm here"}</button>
+            <>
+              <button className="btn-primary h-14 w-full text-base" disabled={busy} onClick={doCheckin}>{busy ? "Checking in…" : status === "upcoming" ? "Check in early" : "Check in: I'm here"}</button>
+              <p className="muted text-center text-xs">Checking in puts you on the board so people can find you and your projects.</p>
+            </>
           )}
         </section>
-      ) : checkedIn ? (
+      ) : ended && !checkedIn ? null : checkedIn ? (
         <CheckedInPanel eventId={event.id} userId={profile.id} note={checkin?.location_note ?? null} ended={ended}
           onNote={(n) => setCheckin({ location_note: n })} onBring={() => setBringOpen(true)} code={event.code} />
       ) : null}
@@ -144,9 +150,9 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
               </button>
             ))}
           </div>
-          {tab === "projects" && <ProjectsTab projects={projects} people={people} profile={profile} code={event.code} checkedIn={checkedIn} ended={ended} onPost={() => setBringOpen(true)} />}
-          {tab === "people" && <PeopleTab people={people} profile={profile} event={event} ended={ended} />}
-          {tab === "activity" && (profile ? <ActivityTab eventId={event.id} profile={profile} projects={projects} /> : <Empty title="Sign in to see your activity" />)}
+          {tab === "projects" && <ProjectsTab projects={projects} people={people} profile={profile} code={event.code} checkedIn={checkedIn} ended={ended} onPost={() => setBringOpen(true)} onPeople={() => setTab("people")} />}
+          {tab === "people" && <PeopleTab people={people} profile={profile} event={event} ended={ended} checkedIn={checkedIn} />}
+          {tab === "activity" && (profile ? <ActivityTab eventId={event.id} code={event.code} profile={profile} projects={projects} /> : <Empty title="Sign in to see your activity" />)}
         </>
       )}
 
@@ -242,8 +248,8 @@ function BringProjectSheet({ open, onClose, eventId, code, userId, onAdded }: { 
   );
 }
 
-function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost }: {
-  projects: ProjectWithRelations[] | null; people: Attendee[] | null; profile: Profile | null; code: string; checkedIn: boolean; ended: boolean; onPost: () => void;
+function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost, onPeople }: {
+  projects: ProjectWithRelations[] | null; people: Attendee[] | null; profile: Profile | null; code: string; checkedIn: boolean; ended: boolean; onPost: () => void; onPeople: () => void;
 }) {
   const mySkills = profile?.skills ?? [];
   const [mineOnly, setMineOnly] = useState(mySkills.length > 0);
@@ -256,7 +262,7 @@ function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost
     if (!projects) return null;
     const term = q.trim().toLowerCase();
     return projects.filter((p) => {
-      if (mineOnly && !needsMySkills(p, mySkills)) return false;
+      if (mineOnly && p.owner_id !== profile?.id && !needsMySkills(p, mySkills)) return false;
       if (specialty && !openSlots(p).some((s) => s.specialty.toLowerCase() === specialty.toLowerCase())) return false;
       if (stage && p.stage !== stage) return false;
       if (openOnly && p.openness === "closed") return false;
@@ -267,7 +273,7 @@ function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost
       }
       return true;
     });
-  }, [projects, mineOnly, specialty, stage, openOnly, q, mySkills]);
+  }, [projects, mineOnly, specialty, stage, openOnly, q, mySkills, profile?.id]);
 
   // Smart match: people here whose skills cover my projects' open slots.
   const smartMatch = useMemo(() => {
@@ -282,7 +288,7 @@ function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost
       {smartMatch > 0 && (
         <div className="card flex items-center justify-between gap-2 bg-brand-soft p-3 text-sm dark:bg-violet-950">
           <span>✨ <b>{smartMatch}</b> {smartMatch === 1 ? "person here has" : "people here have"} the skills you need</span>
-          <span className="muted text-xs">See People tab</span>
+          <button className="shrink-0 font-semibold text-brand underline dark:text-violet-300" onClick={onPeople}>See who</button>
         </div>
       )}
       <input type="search" className="input" placeholder="Search projects, stacks, people…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search projects" />
@@ -300,12 +306,18 @@ function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost
           {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
       </div>
+      {mineOnly && filtered && projects && filtered.length > 0 && filtered.length < projects.length && (
+        <p className="muted text-xs">
+          Showing {filtered.length} of {projects.length} projects that need your skills.{" "}
+          <button className="font-semibold text-brand underline dark:text-violet-300" onClick={() => setMineOnly(false)}>Show all</button>
+        </p>
+      )}
       {filtered === null ? (
         <div className="space-y-3"><ProjectCardSkeleton /><ProjectCardSkeleton /><ProjectCardSkeleton /></div>
       ) : projects!.length === 0 ? (
-        <Empty title="No projects yet. Be the first to post yours." action={checkedIn && !ended && <button className="btn-primary" onClick={onPost}>Post your project</button>} />
+        <Empty title="No projects yet. Be the first to post yours." body={!checkedIn && !ended ? "Check in above to post a project." : undefined} action={checkedIn && !ended && <button className="btn-primary" onClick={onPost}>Post your project</button>} />
       ) : filtered.length === 0 ? (
-        <Empty title="Nothing matches these filters" body={mineOnly ? "No one here needs your skills yet. Try turning off “Needs my skills”." : undefined}
+        <Empty title="Nothing matches these filters" body={mineOnly ? `No project here is looking for ${mySkills.join(", ")} yet. Turn off “Needs my skills” to see everything.` : undefined}
           action={<button className="btn-secondary" onClick={() => { setMineOnly(false); setSpecialty(""); setStage(""); setOpenOnly(false); setQ(""); }}>Clear filters</button>} />
       ) : (
         <ul className="space-y-3">
@@ -316,7 +328,7 @@ function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost
   );
 }
 
-function PeopleTab({ people, profile, event, ended }: { people: Attendee[] | null; profile: Profile | null; event: EventRow; ended: boolean }) {
+function PeopleTab({ people, profile, event, ended, checkedIn }: { people: Attendee[] | null; profile: Profile | null; event: EventRow; ended: boolean; checkedIn: boolean }) {
   const [skill, setSkill] = useState("");
   const [q, setQ] = useState("");
   const [inviting, setInviting] = useState<Attendee | null>(null);
@@ -352,21 +364,23 @@ function PeopleTab({ people, profile, event, ended }: { people: Attendee[] | nul
                 <span className="min-w-0">
                   <span className="block truncate font-semibold">{a.profile.name || a.profile.username}</span>
                   <span className="muted block truncate text-xs">{a.profile.skills.join(" · ") || a.profile.bio}</span>
+                  {a.profile.looking_for?.length > 0 && <span className="block truncate text-[11px] text-violet-700 dark:text-violet-300">Looking for: {a.profile.looking_for.map((l) => LOOKING_LABEL[l] ?? l).join(", ")}</span>}
                 </span>
               </Link>
-              {profile && a.user_id !== profile.id && !ended && (
+              {profile && checkedIn && a.user_id !== profile.id && !ended && (
                 <button className="btn-secondary shrink-0 px-3 text-xs" onClick={() => setInviting(a)}>Invite</button>
               )}
             </li>
           ))}
         </ul>
       )}
-      {profile && inviting && <InviteSheet attendee={inviting} profile={profile} eventId={event.id} onClose={() => setInviting(null)} />}
+      {profile && inviting && <InviteSheet attendee={inviting} profile={profile} event={event} onClose={() => setInviting(null)} />}
     </div>
   );
 }
 
-function InviteSheet({ attendee, profile, eventId, onClose }: { attendee: Attendee; profile: Profile; eventId: string; onClose: () => void }) {
+function InviteSheet({ attendee, profile, event, onClose }: { attendee: Attendee; profile: Profile; event: EventRow; onClose: () => void }) {
+  const eventId = event.id;
   const supabase = createClient();
   const { toast } = useApp();
   const [mine, setMine] = useState<ProjectWithRelations[] | null>(null);
@@ -376,7 +390,7 @@ function InviteSheet({ attendee, profile, eventId, onClose }: { attendee: Attend
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.from("projects").select("*, project_slots(*)").eq("owner_id", profile.id).order("created_at", { ascending: false })
+    supabase.from("projects").select("*, project_slots(*)").eq("owner_id", profile.id).neq("openness", "closed").order("created_at", { ascending: false })
       .then(({ data }: { data: ProjectWithRelations[] | null }) => {
         setMine(data ?? []);
         if (data?.[0]) setProjectId(data[0].id);
@@ -401,7 +415,7 @@ function InviteSheet({ attendee, profile, eventId, onClose }: { attendee: Attend
   return (
     <Sheet open onClose={onClose} title={`Invite ${attendee.profile.name || attendee.profile.username}`}>
       {mine === null ? <div className="skeleton h-24" /> : mine.length === 0 ? (
-        <p className="muted text-sm">Post a project first to invite people. <Link className="text-brand underline" href="/me/projects/new">Post one</Link></p>
+        <p className="muted text-sm">You need a project that&apos;s open to collaborators to invite people. <Link className="text-brand underline" href={`/me/projects/new?event=${event.code}`}>Post one</Link></p>
       ) : (
         <div className="space-y-3">
           <div>
@@ -431,7 +445,7 @@ function InviteSheet({ attendee, profile, eventId, onClose }: { attendee: Attend
 
 type ReqWithProject = JoinRequest & { project: { id: string; name: string } | null; slot: { specialty: string } | null };
 
-function ActivityTab({ eventId, profile, projects }: { eventId: string; profile: Profile; projects: ProjectWithRelations[] | null }) {
+function ActivityTab({ eventId, code, profile, projects }: { eventId: string; code: string; profile: Profile; projects: ProjectWithRelations[] | null }) {
   const supabase = createClient();
   const [mine, setMine] = useState<ReqWithProject[] | null>(null);
   const [pending, setPending] = useState<Record<string, number>>({});
@@ -462,11 +476,11 @@ function ActivityTab({ eventId, profile, projects }: { eventId: string; profile:
     <div className="space-y-5">
       <section>
         <h2 className="mb-2 font-semibold">My projects here</h2>
-        {myProjects.length === 0 ? <p className="muted text-sm">You haven&apos;t brought a project to this event.</p> : (
+        {myProjects.length === 0 ? <p className="muted text-sm">You haven&apos;t brought a project to this event yet.</p> : (
           <ul className="space-y-2">
             {myProjects.map((p) => (
               <li key={p.id}>
-                <Link href={`/p/${p.id}`} className="card flex items-center justify-between p-3">
+                <Link href={`/p/${p.id}?e=${code}`} className="card flex items-center justify-between p-3">
                   <span className="font-medium">{p.name}</span>
                   {pending[p.id] ? <span className="chip bg-brand text-white">{pending[p.id]} pending</span> : <span className="muted text-xs">No pending requests</span>}
                 </Link>
@@ -481,10 +495,10 @@ function ActivityTab({ eventId, profile, projects }: { eventId: string; profile:
           <ul className="space-y-2">
             {mine.map((r) => (
               <li key={r.id}>
-                <Link href={`/p/${r.project_id}`} className="card flex items-center justify-between gap-2 p-3">
+                <Link href={r.status === "accepted" ? `/space/${r.project_id}` : `/p/${r.project_id}?e=${code}`} className="card flex items-center justify-between gap-2 p-3">
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{r.project?.name}</span>
-                    <span className="muted text-xs">{r.direction === "invite" ? "Invited you" : "You requested"}{r.slot ? ` · ${r.slot.specialty}` : ""}</span>
+                    <span className="muted text-xs">{r.direction === "invite" ? "Invited you" : "You requested"}{r.slot ? ` · ${r.slot.specialty}` : ""}{r.status === "pending" && r.direction === "invite" ? " · respond in Inbox" : ""}{r.status === "accepted" ? " · open space →" : ""}</span>
                   </span>
                   <StatusBadge status={r.status} />
                 </Link>
@@ -495,4 +509,13 @@ function ActivityTab({ eventId, profile, projects }: { eventId: string; profile:
       </section>
     </div>
   );
+}
+
+function friendlyCheckinError(msg: string) {
+  if (/capacity/i.test(msg)) return "Sorry, this event is full.";
+  if (/invite-only/i.test(msg)) return "This event is invite-only and your email isn't on the guest list.";
+  if (/ticket/i.test(msg)) return "You need a ticket to check in.";
+  if (/ended/i.test(msg)) return "This event has already ended.";
+  if (/row-level security/i.test(msg)) return "You don't have access to check in to this event.";
+  return msg;
 }

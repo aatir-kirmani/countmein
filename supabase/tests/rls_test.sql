@@ -19,8 +19,13 @@ insert into auth.users (id, email, raw_user_meta_data) values
 
 -- Organizer creates an unlisted event happening now.
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
-insert into events (id, organizer_id, name, starts_at, ends_at, visibility)
-  values ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000d', 'Meetup', now() - interval '1 hour', now() + interval '2 hours', 'unlisted');
+insert into events (id, organizer_id, name, starts_at, ends_at, visibility, cover_url)
+  values ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000d', 'Meetup', now() - interval '1 hour', now() + interval '2 hours', 'unlisted', 'https://example.com/cover.jpg');
+do $$ begin
+  insert into events (organizer_id, name, starts_at, ends_at) values ('00000000-0000-0000-0000-00000000000d', 'No cover', now(), now() + interval '1 hour');
+  raise exception 'FAIL: event without cover allowed';
+exception when check_violation then raise notice 'ok: event requires a cover image';
+end $$;
 select pg_temp.assert((select length(code) = 6 from events where id = '10000000-0000-0000-0000-000000000001'), 'event code generated');
 
 -- Founder checks in and posts a project with a slot.
@@ -103,6 +108,9 @@ select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
 insert into blocks (blocker_id, blocked_id) values ('00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000c');
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
 select pg_temp.assert((select count(*) = 0 from projects where owner_id = '00000000-0000-0000-0000-00000000000a'), 'blocked user cannot see blocker projects');
+select pg_temp.assert((select count(*) = 0 from profiles where id = '00000000-0000-0000-0000-00000000000a'), 'blocked user cannot see blocker profile');
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+select pg_temp.assert((select count(*) = 1 from profiles where id = '00000000-0000-0000-0000-00000000000c'), 'blocker can still see who they blocked');
 
 -- Rate limit: 10 requests per event.
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
