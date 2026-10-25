@@ -3,6 +3,7 @@ import { getUser } from "@/lib/supabase/server";
 import { TicketCode } from "@/components/landing/TicketCode";
 import { LivePhone } from "@/components/landing/LivePhone";
 import { RotatingSnack } from "@/components/landing/RotatingSnack";
+import { RotatingPill } from "@/components/landing/RotatingPill";
 import { eventStatus, fmtDate } from "@/lib/utils";
 import { SKILLS } from "@/lib/constants";
 
@@ -66,7 +67,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
         <div className="text-center lg:text-left">
           <p className="mb-5 inline-flex animate-rise items-center gap-2 rounded-full bg-white/80 px-3 py-1.5 text-xs font-semibold shadow-sm ring-1 ring-zinc-200 backdrop-blur dark:bg-zinc-900/80 dark:ring-zinc-800">
             <span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-lime-400 opacity-75" /><span className="relative inline-flex h-2 w-2 rounded-full bg-lime-500" /></span>
-            The live board for indie hacker meetups
+            <RotatingPill />
           </p>
           <h1 className="animate-rise text-[2.6rem] font-extrabold leading-[1.02] [animation-delay:80ms] sm:text-6xl lg:text-7xl">
             Find your{" "}
@@ -77,8 +78,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             before <RotatingSnack />
           </h1>
           <p className="mx-auto mt-6 max-w-xl animate-rise text-lg text-zinc-600 [animation-delay:160ms] dark:text-zinc-300 lg:mx-0">
-            Check in, show what you&apos;re building, and tap <strong className="text-zinc-900 dark:text-white">Count me in</strong> on projects that need you.
-            Founders say yes on the spot, and contacts swap instantly.
+            Stop pitching to the snack table. Post what you&apos;re building and let the <strong className="text-zinc-900 dark:text-white">right people</strong> come to you.
           </p>
 
           <div className="mt-8 animate-rise [animation-delay:240ms] lg:max-w-md">
@@ -181,7 +181,7 @@ function Marketing() {
 
       <section className="mx-auto max-w-3xl py-12">
         <p className="text-center font-mono text-xs font-bold uppercase tracking-[0.3em] text-brand dark:text-violet-400">How the night goes</p>
-        <h2 className="mt-3 text-center text-4xl font-extrabold sm:text-5xl">From stranger to collaborator in 17 minutes.</h2>
+        <h2 className="mt-3 text-center text-4xl font-extrabold sm:text-5xl">From hello to co-founder in 17 minutes.</h2>
         <ol className="relative mt-12 space-y-6 before:absolute before:bottom-6 before:left-[1.15rem] before:top-6 before:w-0.5 before:bg-gradient-to-b before:from-brand before:to-lime-400 sm:before:left-[5.6rem]">
           {TIMELINE.map((s) => (
             <li key={s.time} className="relative grid grid-cols-[2.3rem_1fr] gap-4 sm:grid-cols-[4.5rem_2.3rem_1fr]">
@@ -274,7 +274,9 @@ function Marketing() {
 
       <section className="py-16 text-center">
         <h2 className="text-4xl font-extrabold sm:text-5xl">
-          Your next co-founder is <span className="relative inline-block text-brand dark:text-violet-400">probably<Squiggle className="absolute -bottom-1 left-0 h-2.5 w-full text-lime-400" /></span> in the room.
+          Less mingling.
+          <br />
+          <span className="relative inline-block text-brand dark:text-violet-400">More making.<Squiggle className="absolute -bottom-1 left-0 h-2.5 w-full text-lime-400" /></span>
         </h2>
         <Link href="/login" className="mt-8 inline-flex min-h-[56px] items-center gap-2 rounded-2xl bg-brand px-8 text-lg font-bold text-white shadow-[0_6px_0_0_#4c1d95] transition hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_2px_0_0_#4c1d95]">
           Count me in <span aria-hidden className="origin-bottom motion-safe:animate-wiggle">✋</span>
