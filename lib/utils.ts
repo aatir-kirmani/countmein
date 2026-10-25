@@ -51,3 +51,25 @@ export function needsMySkills(p: ProjectWithRelations, skills: string[]) {
 export function initials(name: string) {
   return (name || "?").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
+
+const MAP_HOSTS = /^(www\.)?(google\.[a-z.]+|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl)$/i;
+
+/** True for Google Maps share links (maps.app.goo.gl, goo.gl/maps, google.com/maps, maps.google.com). */
+export function isGoogleMapsUrl(raw: string) {
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== "https:" || !MAP_HOSTS.test(u.hostname)) return false;
+    if (/^(www\.)?google\./i.test(u.hostname)) return u.pathname.startsWith("/maps");
+    if (/^goo\.gl$/i.test(u.hostname)) return u.pathname.startsWith("/maps");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Where "Get directions" should go: the organizer's map link, or a Maps search for the venue. */
+export function directionsHref(e: { maps_url?: string | null; venue?: string | null; city?: string | null }) {
+  if (e.maps_url) return e.maps_url;
+  const q = [e.venue, e.city].filter(Boolean).join(", ");
+  return q ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}` : null;
+}

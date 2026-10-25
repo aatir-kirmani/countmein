@@ -31,6 +31,8 @@ export interface EventRow {
   ends_at: string;
   venue: string | null;
   city: string | null;
+  maps_url: string | null;
+  location_details: string | null;
   cover_url: string | null;
   gallery_urls: string[];
   video_url: string | null;

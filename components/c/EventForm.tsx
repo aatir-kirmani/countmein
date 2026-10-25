@@ -6,7 +6,7 @@ import { useApp } from "@/components/Providers";
 import { EventMediaEditor } from "@/components/EventMediaEditor";
 import { ChoiceCards, Field, FormSection, Segmented, Stepper, StickyActions, Toggle } from "@/components/ui/Form";
 import type { EventRow } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, isGoogleMapsUrl } from "@/lib/utils";
 
 type Series = { id: string; name: string };
 type Visibility = EventRow["visibility"];
@@ -72,6 +72,8 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
     end: timeOf(end0),
     venue: event?.venue ?? "",
     city: event?.city ?? "",
+    maps_url: event?.maps_url ?? "",
+    location_details: event?.location_details ?? "",
     images: [event?.cover_url, ...(event?.gallery_urls ?? [])].filter((u): u is string => !!u),
     video_url: event?.video_url ?? (null as string | null),
     capacity: event?.capacity?.toString() ?? "",
@@ -84,7 +86,7 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
     price: event?.ticket_price_cents ? (event.ticket_price_cents / 100).toString() : "10",
   });
   const patch = (p: Partial<typeof f>) => setF((prev) => ({ ...prev, ...p }));
-  const bind = (k: "name" | "description" | "date" | "start" | "end" | "venue" | "city" | "new_series") => ({
+  const bind = (k: "name" | "description" | "date" | "start" | "end" | "venue" | "city" | "maps_url" | "location_details" | "new_series") => ({
     value: f[k],
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => patch({ [k]: e.target.value }),
   });
@@ -101,6 +103,7 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
   const errors = {
     name: !f.name.trim() ? "Give your event a name" : null,
     when: !range ? "Pick a date, start and end time" : !event && range.e.getTime() < Date.now() ? "This time is already in the past" : duration > 24 ? "Events can run up to 24 hours" : null,
+    maps: f.maps_url.trim() && !isGoogleMapsUrl(f.maps_url) ? "Paste a Google Maps link, like https://maps.app.goo.gl/..." : null,
     images: f.images.length === 0 ? "Add at least one photo. It becomes the cover." : null,
     capacity: f.limited && !(Number(f.capacity) >= 1) ? "Set a capacity of at least 1" : null,
     price: PAYMENTS_ENABLED && f.paid && !(Number(f.price) >= 1) ? "Tickets start at 1.00" : null,
@@ -135,6 +138,8 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
       ends_at: range.e.toISOString(),
       venue: f.venue.trim() || null,
       city: f.city.trim() || null,
+      maps_url: f.maps_url.trim() || null,
+      location_details: f.location_details.trim() || null,
       cover_url: f.images[0],
       gallery_urls: f.images.slice(1),
       video_url: f.video_url,
@@ -230,6 +235,40 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
             <input id="ev-city" className="input" placeholder="Dubai" autoComplete="address-level2" {...bind("city")} />
           </Field>
         </div>
+        <Field
+          label="Google Maps link" optional htmlFor="ev-maps" error={show("maps")}
+          hint={
+            <>
+              In Google Maps, find the place, tap <b>Share</b>, then <b>Copy link</b>.{" "}
+              {(f.venue.trim() || f.city.trim()) && (
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([f.venue, f.city].filter((x) => x.trim()).join(", "))}`}
+                  target="_blank" rel="noopener noreferrer" className="font-semibold text-brand underline underline-offset-2 dark:text-violet-400"
+                >
+                  Find &ldquo;{[f.venue, f.city].filter((x) => x.trim()).join(", ")}&rdquo; on Maps ↗
+                </a>
+              )}
+            </>
+          }
+        >
+          <div className="relative">
+            <span aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg">📍</span>
+            <input
+              id="ev-maps" type="url" inputMode="url" className="input pl-11" placeholder="https://maps.app.goo.gl/..." autoComplete="off"
+              aria-invalid={!!show("maps")} {...bind("maps_url")}
+            />
+          </div>
+        </Field>
+        <Field
+          label="How to find it" optional htmlFor="ev-loc" counter={{ value: f.location_details.length, max: 500 }}
+          hint="Floor, entrance, parking, who to ask at reception. Shown on the event page under Getting there."
+        >
+          <textarea
+            id="ev-loc" className="input min-h-[88px]" rows={3} maxLength={500}
+            placeholder="Level 3, take the lift by Costa. Free parking in P2, ask security for the Countmein meetup."
+            {...bind("location_details")}
+          />
+        </Field>
       </FormSection>
 
       <FormSection step={3} title="Make it look good" description="Great photos get more check-ins. The first one is your cover.">

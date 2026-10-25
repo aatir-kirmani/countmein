@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import type { EventRow, Profile, ProjectWithRelations, JoinRequest } from "@/lib/types";
 import { LOOKING_FOR, SKILLS, STAGES } from "@/lib/constants";
-import { cn, eventStatus, fmtDate, needsMySkills, openSlots } from "@/lib/utils";
+import { cn, eventStatus, fmtDate, needsMySkills, openSlots, directionsHref } from "@/lib/utils";
 import { ProjectCard, ProjectCardSkeleton } from "@/components/ProjectCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { EventMedia } from "@/components/EventMedia";
@@ -219,6 +219,7 @@ function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; 
   const faces = (people ?? []).slice(0, 5);
   const longDesc = (event.description ?? "").length > 240;
   const spotsLeft = event.capacity && people ? Math.max(event.capacity - people.length, 0) : null;
+  const directions = directionsHref(event);
   const copyCode = async () => {
     try { await navigator.clipboard.writeText(`${window.location.origin}/e/${event.code}`); toast("Event link copied"); } catch { /* clipboard blocked */ }
   };
@@ -244,9 +245,33 @@ function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; 
         <div className="mt-3 flex flex-col gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
           <span className="flex items-center gap-2"><Icon name="calendar" className="h-4 w-4 shrink-0" />{fmtDate(event.starts_at)}</span>
           {(event.venue || event.city) && (
-            <span className="flex items-center gap-2"><Icon name="pin" className="h-4 w-4 shrink-0" />{[event.venue, event.city].filter(Boolean).join(", ")}</span>
+            directions ? (
+              <a href={directions} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 underline decoration-zinc-300 underline-offset-4 hover:text-brand hover:decoration-brand dark:decoration-zinc-700 dark:hover:text-violet-300">
+                <Icon name="pin" className="h-4 w-4 shrink-0" />{[event.venue, event.city].filter(Boolean).join(", ")}
+              </a>
+            ) : (
+              <span className="flex items-center gap-2"><Icon name="pin" className="h-4 w-4 shrink-0" />{[event.venue, event.city].filter(Boolean).join(", ")}</span>
+            )
           )}
         </div>
+
+        {(directions || event.location_details) && (
+          <div className="mt-4 overflow-hidden rounded-3xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
+            <div className="flex items-start gap-3 p-4">
+              <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-lime-300 text-zinc-900"><Icon name="pin" className="h-5 w-5" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Getting there</p>
+                <p className="font-bold leading-snug">{[event.venue, event.city].filter(Boolean).join(", ") || "Venue location"}</p>
+                {event.location_details && <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{event.location_details}</p>}
+              </div>
+            </div>
+            {directions && (
+              <a href={directions} target="_blank" rel="noopener noreferrer" className="flex min-h-[48px] items-center justify-center gap-2 border-t border-zinc-200 text-sm font-bold text-brand transition hover:bg-violet-50 dark:border-zinc-800 dark:text-violet-300 dark:hover:bg-violet-950/30">
+                Get directions in Google Maps <span aria-hidden>↗</span>
+              </a>
+            )}
+          </div>
+        )}
 
         {people && (
           <div className="mt-4 flex items-center gap-3">

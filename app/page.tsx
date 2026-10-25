@@ -276,7 +276,7 @@ function Marketing() {
         <h2 className="text-4xl font-extrabold sm:text-5xl">
           Less mingling.
           <br />
-          <span className="relative inline-block text-brand dark:text-violet-400">More making.<Squiggle className="absolute -bottom-1 left-0 h-2.5 w-full text-lime-400" /></span>
+          <span className="relative inline-block text-brand dark:text-violet-400">More building.<Squiggle className="absolute -bottom-1 left-0 h-2.5 w-full text-lime-400" /></span>
         </h2>
         <Link href="/login" className="mt-8 inline-flex min-h-[56px] items-center gap-2 rounded-2xl bg-brand px-8 text-lg font-bold text-white shadow-[0_6px_0_0_#4c1d95] transition hover:-translate-y-0.5 active:translate-y-1 active:shadow-[0_2px_0_0_#4c1d95]">
           Count me in <span aria-hidden className="origin-bottom motion-safe:animate-wiggle">✋</span>
