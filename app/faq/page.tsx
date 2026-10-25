@@ -105,6 +105,16 @@ const GROUPS: Group[] = [
         a: <p>Yes. <strong>Unlisted</strong> events can only be reached with the code or QR. <strong>Invite only</strong> events let in only the emails you add on the manage page.</p>,
       },
       {
+        q: "Can I approve guests or run a waitlist?",
+        text: "Yes. Turn on Require approval to review each registration, cap capacity and turn on a waitlist so spots fill in order when someone cancels, and add up to 10 registration questions. Answers show up in your guest list.",
+        a: <p>Yes. Turn on <strong>Require approval</strong> to review each registration, set a capacity with a <strong>waitlist</strong> so spots fill in order when someone cancels, and add up to 10 <strong>registration questions</strong>. Answers show up in your guest list, where you can approve, decline or check people in at the door.</p>,
+      },
+      {
+        q: "Can I message my guests or add co-hosts?",
+        text: "Yes. Send updates to all guests or just one group, such as people going or on the waitlist. Updates appear on the event page and are emailed. You can also add co-hosts who can manage the event with you.",
+        a: <p>Yes. Send updates to everyone or to one group (going, checked in, pending or waitlist). They show on the event page and go out by email. Change the time or place and we&apos;ll offer to tell everyone. You can also add <strong>co-hosts</strong> who manage the event with you.</p>,
+      },
+      {
         q: "Can I sell tickets?",
         text: "Not yet. All events are free for now. Paid features will be processed by our Merchant of Record, Creem, when they launch.",
         a: <p>Not yet. All events are free for now. When paid features launch, payments will be processed by our Merchant of Record, Creem.</p>,

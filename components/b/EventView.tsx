@@ -3,9 +3,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
-import type { EventRow, Profile, ProjectWithRelations, JoinRequest } from "@/lib/types";
+import type { EventRow, Profile, ProjectWithRelations, JoinRequest, RegistrationStatus } from "@/lib/types";
 import { LOOKING_FOR, SKILLS, STAGES } from "@/lib/constants";
-import { cn, eventStatus, fmtDate, needsMySkills, openSlots, directionsHref } from "@/lib/utils";
+import { cn, eventStatus, needsMySkills, openSlots, directionsHref } from "@/lib/utils";
+import { browserTimeZone, fmtInZone, fmtRangeInZone, tzLabel, utcToZoned } from "@/lib/time";
 import { ProjectCard, ProjectCardSkeleton } from "@/components/ProjectCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { EventMedia } from "@/components/EventMedia";
@@ -15,32 +16,76 @@ import { Sheet } from "./Sheet";
 import { Confetti } from "./Confetti";
 import { ChipSelect, EmptyState, FilterChip, Icon, ProjectLogo, SectionTitle, TabBar } from "./ui";
 import { useEventData, type Attendee } from "./useEventData";
+import { CancelledBanner, HostsRow, HostUpdates, RegisterCta, RegisterSheet, RegistrationStatusCard, TicketCard, type HostPerson, type PublicStats } from "./Registration";
 import { notify } from "./notify";
 
 type Sponsor = { id: string; name: string; logo_url: string | null; url: string | null; tier: string };
 type Tab = "projects" | "people" | "activity";
 const LOOKING_LABEL: Record<string, string> = Object.fromEntries(LOOKING_FOR.map((l) => [l.value, l.label]));
 
-export function EventView({ event, profile, initialCheckin, hasTicket: initialHasTicket, justPaid, highlightCheckin = false, sponsors }: {
+export function EventView({ event, profile, initialCheckin, hasTicket: initialHasTicket, justPaid, highlightCheckin = false, sponsors, initialRegistration = null, hosts = [], isHost: isHostProp, initialStats = null }: {
   event: EventRow; profile: Profile | null; initialCheckin: { location_note: string | null } | null;
   hasTicket: boolean; justPaid: boolean; highlightCheckin?: boolean; sponsors: Sponsor[];
+  initialRegistration?: RegistrationStatus | null; hosts?: HostPerson[]; isHost?: boolean; initialStats?: PublicStats | null;
 }) {
   const supabase = createClient();
   const { toast } = useApp();
   const status = eventStatus(event);
   const ended = status === "ended";
-  const isOrganizer = profile?.id === event.organizer_id;
+  const cancelled = status === "cancelled";
+  const live = status === "live";
+  const startsSoon = status === "upcoming" && new Date(event.starts_at).getTime() - Date.now() < 2 * 3600e3;
+  const isOrganizer = isHostProp ?? profile?.id === event.organizer_id;
   const [checkin, setCheckin] = useState(initialCheckin);
+  const [registration, setRegistration] = useState<RegistrationStatus | null>(initialRegistration);
+  const [stats, setStats] = useState<PublicStats | null>(initialStats);
   const checkedIn = !!checkin;
   const canViewBoard = event.visibility === "public" || checkedIn || isOrganizer;
   const { projects, people, reload } = useEventData(event.id, canViewBoard);
   const [tab, setTab] = useState<Tab>("projects");
   const [bringOpen, setBringOpen] = useState(false);
+  const [registerOpen, setRegisterOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
+  const [freshTicket, setFreshTicket] = useState(false);
   const [hasTicket, setHasTicket] = useState(initialHasTicket);
   const [confirming, setConfirming] = useState(justPaid && !initialHasTicket);
-  const checkinRef = useRef<HTMLElement>(null);
+  const checkinRef = useRef<HTMLDivElement>(null);
+
+  const refreshStats = useCallback(async () => {
+    const { data } = await supabase.rpc("event_public_stats", { p_event: event.id });
+    const row = (data as PublicStats[] | null)?.[0];
+    if (row) setStats(row);
+  }, [supabase, event.id]);
+
+  // Count one page view per browser session.
+  useEffect(() => {
+    const key = `cmi-viewed-${event.id}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch { /* storage blocked: still count */ }
+    supabase.rpc("track_event_view", { p_event: event.id }).then(() => {}, () => {});
+  }, [supabase, event.id]);
+
+  // Hosts approving, waitlist promotions and capacity changes arrive live.
+  useEffect(() => {
+    if (!profile) return;
+    const ch = supabase.channel(`my-reg:${event.id}:${profile.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "event_registrations", filter: `event_id=eq.${event.id}` }, (payload: { new: Record<string, unknown> }) => {
+        const row = payload.new as { user_id?: string; status?: RegistrationStatus };
+        if (row?.user_id === profile.id && row.status) {
+          setRegistration((prev) => {
+            if (prev !== "going" && row.status === "going") toast("You're in! Your ticket is ready.", { kind: "success" });
+            if (prev !== "declined" && row.status === "declined") toast("The host couldn't fit you in this time.");
+            return row.status!;
+          });
+        }
+        refreshStats();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [supabase, event.id, profile, toast, refreshStats]);
 
   // Arrived from "post a project" without checking in: bring the check-in card into view.
   useEffect(() => {
@@ -67,6 +112,12 @@ export function EventView({ event, profile, initialCheckin, hasTicket: initialHa
     return () => clearInterval(id);
   }, [confirming, profile, supabase, event.id, toast]);
 
+  const party = () => {
+    setCelebrate(true);
+    navigator.vibrate?.([30, 40, 30]);
+    setTimeout(() => setCelebrate(false), 2200);
+  };
+
   const doCheckin = async () => {
     if (!profile) return;
     setBusy(true);
@@ -74,14 +125,34 @@ export function EventView({ event, profile, initialCheckin, hasTicket: initialHa
     setBusy(false);
     if (error) {
       if (error.code === "23505") { setCheckin({ location_note: null }); reload(); return; } // already checked in (another tab)
+      if (/register first/i.test(error.message)) setRegisterOpen(true);
       return toast(friendlyCheckinError(error.message), { kind: "error" });
     }
     setCheckin(data);
-    setCelebrate(true);
-    navigator.vibrate?.([30, 40, 30]);
-    setTimeout(() => setCelebrate(false), 2200);
+    setRegistration("going");
+    party();
     reload();
+    refreshStats();
     setTimeout(() => setBringOpen(true), 900);
+  };
+
+  const onRegistered = (st: RegistrationStatus) => {
+    setRegisterOpen(false);
+    setRegistration(st);
+    refreshStats();
+    if (st === "going") { party(); setFreshTicket(true); toast("You're on the list! 🎉", { kind: "success" }); }
+    else if (st === "pending") toast("Request sent. The host will review it soon.");
+    else if (st === "waitlist") toast("You're on the waitlist. We'll tell you if a spot opens.");
+  };
+
+  const cancelRegistration = async () => {
+    setBusy(true);
+    const { error } = await supabase.rpc("cancel_registration", { p_event: event.id });
+    setBusy(false);
+    if (error) return toast(error.message, { kind: "error" });
+    setRegistration("cancelled");
+    refreshStats();
+    toast("Your spot is released. Thanks for letting the host know.");
   };
 
   const buyTicket = async () => {
@@ -96,9 +167,33 @@ export function EventView({ event, profile, initialCheckin, hasTicket: initialHa
   const needsTicket = event.ticket_price_cents > 0 && !hasTicket && !isOrganizer;
   const price = (event.ticket_price_cents / 100).toLocaleString(undefined, { style: "currency", currency: event.currency.toUpperCase() });
 
+  const highlightPill = highlightCheckin && (
+    <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-lime-300 px-3 py-1 text-xs font-bold text-zinc-900">
+      👇 Check in first to post your project
+    </p>
+  );
+
+  const ticketGate = needsTicket ? (
+    <div className="mb-3">
+      {confirming && (
+        <p role="status" className="mb-3 flex items-center gap-2 rounded-2xl bg-white/15 px-3 py-2 text-sm font-semibold backdrop-blur">
+          <span className="h-2 w-2 animate-ping rounded-full bg-lime-300" /> Payment received, confirming your ticket…
+        </p>
+      )}
+      <button className="btn-accent h-14 w-full text-base" disabled={busy || confirming} onClick={buyTicket}>
+        <Icon name="ticket" className="h-5 w-5" /> {busy ? "Opening checkout…" : `Get a ticket · ${price}`}
+      </button>
+      {justPaid && !confirming && (
+        <button className="btn mt-2 w-full bg-white/15 text-white hover:bg-white/25" disabled={busy} onClick={doCheckin}>I&apos;ve paid, check me in</button>
+      )}
+    </div>
+  ) : undefined;
+
   return (
     <div className="space-y-5">
-      <EventHeader event={event} status={status} people={people} isOrganizer={isOrganizer} />
+      <EventHeader event={event} status={status} people={people} isOrganizer={isOrganizer} stats={stats} hosts={hosts} />
+
+      {cancelled && <CancelledBanner reason={event.cancel_reason} />}
 
       {ended && (
         <div role="status" className="flex items-start gap-3 rounded-3xl bg-zinc-100 p-4 text-sm dark:bg-zinc-900">
@@ -107,67 +202,50 @@ export function EventView({ event, profile, initialCheckin, hasTicket: initialHa
         </div>
       )}
 
-      {/* Check-in moment */}
-      {!profile ? (
-        <section className="relative overflow-hidden rounded-[2rem] bg-zinc-950 p-6 text-white dark:ring-1 dark:ring-zinc-800">
-          <div aria-hidden className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-violet-600/40 blur-3xl" />
-          <p className="eyebrow !text-lime-300">You&apos;re invited</p>
-          <h2 className="mt-2 text-2xl font-extrabold leading-tight">Join the room, find your people.</h2>
-          <p className="mt-2 text-sm text-zinc-300">Sign in to check in, show what you&apos;re building and team up with folks here tonight.</p>
-          <Link href={`/login?next=/e/${event.code}`} className="btn-accent mt-5 w-full">Sign in to check in</Link>
-        </section>
-      ) : !checkedIn && !ended ? (
-        <section
-          ref={checkinRef}
-          id="checkin"
-          className={cn(
-            "relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-700 via-brand to-fuchsia-700 p-6 text-white shadow-[0_20px_50px_-20px_rgba(109,40,217,.7)]",
-            highlightCheckin && "ring-4 ring-lime-300 ring-offset-2 ring-offset-zinc-50 dark:ring-offset-zinc-950"
-          )}
-        >
-          <div aria-hidden className="dot-grid absolute inset-0 text-white/10" />
-          <div className="relative">
-            {highlightCheckin && (
-              <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-lime-300 px-3 py-1 text-xs font-bold text-zinc-900">
-                👇 Check in first to post your project
-              </p>
-            )}
-            {confirming && (
-              <p role="status" className="mb-3 flex items-center gap-2 rounded-2xl bg-white/15 px-3 py-2 text-sm font-semibold backdrop-blur">
-                <span className="h-2 w-2 animate-ping rounded-full bg-lime-300" /> Payment received, confirming your ticket…
-              </p>
-            )}
-            {needsTicket ? (
-              <>
+      {/* Registration and check-in */}
+      {!cancelled && (
+        <div ref={checkinRef} className="relative">
+          {celebrate && <Confetti />}
+          {!profile ? (
+            !ended && (
+              <section className="relative overflow-hidden rounded-[2rem] bg-zinc-950 p-6 text-white dark:ring-1 dark:ring-zinc-800">
+                <div aria-hidden className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-violet-600/40 blur-3xl" />
+                <p className="eyebrow !text-lime-300">You&apos;re invited</p>
+                <h2 className="mt-2 text-2xl font-extrabold leading-tight">Join the room, find your people.</h2>
+                <p className="mt-2 text-sm text-zinc-300">
+                  Sign in to {live ? "check in" : event.require_approval ? "request a spot" : "register"}, show what you&apos;re building and team up with folks here.
+                </p>
+                <Link href={`/login?next=/e/${event.code}`} className="btn-accent mt-5 w-full">Sign in to {live ? "check in" : "register"}</Link>
+              </section>
+            )
+          ) : checkedIn ? (
+            <CheckedInPanel eventId={event.id} userId={profile.id} note={checkin?.location_note ?? null} ended={ended} fresh={celebrate}
+              onNote={(n) => setCheckin({ location_note: n })} onBring={() => setBringOpen(true)} code={event.code} />
+          ) : ended ? null : registration === "going" || isOrganizer ? (
+            <TicketCard event={event} userId={profile.id} live={live} soon={startsSoon} busy={busy} fresh={freshTicket}
+              onCheckin={doCheckin} onCancel={cancelRegistration} ticketGate={ticketGate} />
+          ) : registration === "pending" || registration === "waitlist" || registration === "declined" ? (
+            <RegistrationStatusCard status={registration} busy={busy} onLeave={cancelRegistration} />
+          ) : needsTicket && live ? (
+            <section id="checkin" className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-700 via-brand to-fuchsia-700 p-6 text-white">
+              <div className="relative">
+                {highlightPill}
                 <p className="eyebrow !text-lime-300">Ticket required</p>
                 <h2 className="mt-1 text-3xl font-extrabold">Grab your spot</h2>
-                <p className="mt-1 text-sm text-violet-100">One ticket, the whole room. Checkout takes a minute.</p>
-                <button className="btn-accent mt-5 h-14 w-full text-base" disabled={busy || confirming} onClick={buyTicket}>
-                  <Icon name="ticket" className="h-5 w-5" /> {busy ? "Opening checkout…" : `Get a ticket · ${price}`}
-                </button>
-                {justPaid && !confirming && (
-                  <button className="btn mt-2 w-full bg-white/15 text-white hover:bg-white/25" disabled={busy} onClick={doCheckin}>I&apos;ve paid, check me in</button>
-                )}
-              </>
-            ) : (
-              <>
-                <p className="eyebrow !text-lime-300">{status === "upcoming" ? "Doors open soon" : "You made it"}</p>
-                <h2 className="mt-1 text-3xl font-extrabold leading-tight">{status === "upcoming" ? "Save your spot on the board" : "Are you in the room?"}</h2>
-                <p className="mt-1 text-sm text-violet-100">Checking in puts you on the live board so people can find you and what you&apos;re building.</p>
-                <button className="btn-accent mt-5 h-14 w-full text-lg" disabled={busy} onClick={doCheckin}>
-                  {busy ? "Checking you in…" : status === "upcoming" ? "Check in early ✋" : "I'm here! 👋"}
-                </button>
-              </>
-            )}
-          </div>
-        </section>
-      ) : checkedIn && profile ? (
-        <div className="relative">
-          {celebrate && <Confetti />}
-          <CheckedInPanel eventId={event.id} userId={profile.id} note={checkin?.location_note ?? null} ended={ended} fresh={celebrate}
-            onNote={(n) => setCheckin({ location_note: n })} onBring={() => setBringOpen(true)} code={event.code} />
+                <p className="mb-5 mt-1 text-sm text-violet-100">One ticket, the whole room. Checkout takes a minute.</p>
+                {ticketGate}
+              </div>
+            </section>
+          ) : (
+            <RegisterCta event={event} stats={stats} live={live} busy={busy} highlight={highlightCheckin}
+              onRegister={() => setRegisterOpen(true)} onCheckin={doCheckin}>
+              {highlightPill}
+            </RegisterCta>
+          )}
         </div>
-      ) : null}
+      )}
+
+      {!cancelled && <HostUpdates eventId={event.id} signedIn={!!profile} />}
 
       {sponsors.length > 0 && (
         <section aria-label="Sponsors" className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 py-1 [scrollbar-width:none]">
@@ -184,8 +262,8 @@ export function EventView({ event, profile, initialCheckin, hasTicket: initialHa
         </section>
       )}
 
-      {!canViewBoard ? (
-        <EmptyState emoji="🔒" title="The board is for people in the room" body="Check in above and you'll see every project and person here, live." />
+      {cancelled ? null : !canViewBoard ? (
+        <EmptyState emoji="🔒" title="The board is for people in the room" body={live ? "Check in above and you'll see every project and person here, live." : "Once the event starts, check in at the venue to see every project and person in the room."} />
       ) : (
         <>
           <div className="sticky top-14 z-30 -mx-4 bg-zinc-50/85 px-4 py-2 backdrop-blur-md dark:bg-zinc-950/85">
@@ -209,16 +287,31 @@ export function EventView({ event, profile, initialCheckin, hasTicket: initialHa
       )}
 
       {profile && <BringProjectSheet open={bringOpen} onClose={() => setBringOpen(false)} eventId={event.id} code={event.code} userId={profile.id} onAdded={reload} />}
+      {profile && !cancelled && <RegisterSheet open={registerOpen} onClose={() => setRegisterOpen(false)} event={event} onDone={onRegistered} />}
     </div>
   );
 }
 
-function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; status: string; people: Attendee[] | null; isOrganizer: boolean }) {
+function EventHeader({ event, status, people, isOrganizer, stats, hosts }: {
+  event: EventRow; status: string; people: Attendee[] | null; isOrganizer: boolean; stats: PublicStats | null; hosts: HostPerson[];
+}) {
   const { toast } = useApp();
   const [more, setMore] = useState(false);
-  const faces = (people ?? []).slice(0, 5);
+  const [viewerTime, setViewerTime] = useState<string | null>(null);
+  const tz = event.timezone || "UTC";
+  // Only after mount: the viewer's zone isn't known on the server.
+  useEffect(() => {
+    const mine = browserTimeZone();
+    if (mine !== tz && utcToZoned(event.starts_at, mine).time !== utcToZoned(event.starts_at, tz).time) {
+      setViewerTime(fmtInZone(event.starts_at, mine) + " " + tzLabel(event.starts_at, mine));
+    }
+  }, [event.starts_at, tz]);
+  const showGuests = event.show_guest_list !== false || isOrganizer;
+  const faces = showGuests ? (people ?? []).slice(0, 5) : [];
   const longDesc = (event.description ?? "").length > 240;
-  const spotsLeft = event.capacity && people ? Math.max(event.capacity - people.length, 0) : null;
+  const spotsLeft = event.capacity ? (stats?.spots_left ?? null) : null;
+  const live = status === "live";
+  const headcount = stats ? (live || status === "ended" ? Number(stats.checked_in) : Number(stats.going)) : people?.length ?? 0;
   const directions = directionsHref(event);
   const copyCode = async () => {
     try { await navigator.clipboard.writeText(`${window.location.origin}/e/${event.code}`); toast("Event link copied"); } catch { /* clipboard blocked */ }
@@ -233,6 +326,8 @@ function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; 
             <span className="chip bg-red-500 text-white"><span className="h-1.5 w-1.5 animate-ping rounded-full bg-white" />Live now</span>
           ) : status === "ended" ? (
             <span className="chip bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">Ended</span>
+          ) : status === "cancelled" ? (
+            <span className="chip bg-red-100 text-red-800 dark:bg-red-400/15 dark:text-red-200">Cancelled</span>
           ) : (
             <span className="chip bg-amber-100 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200">Upcoming</span>
           )}
@@ -240,10 +335,17 @@ function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; 
             {event.code} <Icon name="copy" className="h-3 w-3" />
           </button>
           {event.visibility === "invite_only" && <span className="chip bg-violet-100 text-violet-900 dark:bg-violet-400/15 dark:text-violet-200">Invite-only</span>}
+          {event.require_approval && <span className="chip bg-amber-100 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200">Approval required</span>}
         </div>
         <h1 className="mt-3 text-4xl font-extrabold leading-[1.05] sm:text-5xl">{event.name}</h1>
         <div className="mt-3 flex flex-col gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
-          <span className="flex items-center gap-2"><Icon name="calendar" className="h-4 w-4 shrink-0" />{fmtDate(event.starts_at)}</span>
+          <span className="flex items-start gap-2">
+            <Icon name="calendar" className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              {fmtRangeInZone(event.starts_at, event.ends_at, tz)}
+              {viewerTime && <span className="block text-xs text-zinc-500">Your time: {viewerTime}</span>}
+            </span>
+          </span>
           {(event.venue || event.city) && (
             directions ? (
               <a href={directions} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 underline decoration-zinc-300 underline-offset-4 hover:text-brand hover:decoration-brand dark:decoration-zinc-700 dark:hover:text-violet-300">
@@ -255,7 +357,7 @@ function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; 
           )}
         </div>
 
-        {(directions || event.location_details) && (
+        {status !== "cancelled" && (directions || event.location_details) && (
           <div className="mt-4 overflow-hidden rounded-3xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
             <div className="flex items-start gap-3 p-4">
               <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-lime-300 text-zinc-900"><Icon name="pin" className="h-5 w-5" /></span>
@@ -273,7 +375,9 @@ function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; 
           </div>
         )}
 
-        {people && (
+        {hosts.length > 0 && <div className="mt-4"><HostsRow hosts={hosts} /></div>}
+
+        {status !== "cancelled" && ((showGuests && (headcount > 0 || faces.length > 0)) || spotsLeft !== null) ? (
           <div className="mt-4 flex items-center gap-3">
             {faces.length > 0 && (
               <div className="flex -space-x-2">
@@ -283,12 +387,18 @@ function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; 
               </div>
             )}
             <p className="text-sm">
-              <b className="font-display text-base">{people.length}</b> <span className="text-zinc-600 dark:text-zinc-400">{people.length === 1 ? "builder" : "builders"} here</span>
-              {spotsLeft !== null && <span className="text-zinc-600 dark:text-zinc-400"> · {spotsLeft} of {event.capacity} spots left</span>}
+              {showGuests && (
+                <>
+                  <b className="font-display text-base">{headcount}</b>{" "}
+                  <span className="text-zinc-600 dark:text-zinc-400">{live || status === "ended" ? (headcount === 1 ? "builder here" : "builders here") : "going"}</span>
+                  {stats && Number(stats.waitlist) > 0 && <span className="text-zinc-600 dark:text-zinc-400"> · {stats.waitlist} on the waitlist</span>}
+                </>
+              )}
+              {spotsLeft !== null && <span className="text-zinc-600 dark:text-zinc-400">{showGuests ? " · " : ""}{spotsLeft === 0 ? "Full" : `${spotsLeft} of ${event.capacity} spots left`}</span>}
             </p>
           </div>
-        )}
-        {spotsLeft !== null && event.capacity && (
+        ) : null}
+        {status !== "cancelled" && spotsLeft !== null && event.capacity && (
           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800" aria-hidden>
             <div className="h-full rounded-full bg-gradient-to-r from-brand to-fuchsia-500" style={{ width: `${Math.min(100, ((event.capacity - spotsLeft) / event.capacity) * 100)}%` }} />
           </div>
@@ -730,6 +840,7 @@ function ActivityTab({ eventId, code, profile, projects }: { eventId: string; co
 }
 
 function friendlyCheckinError(msg: string) {
+  if (/waiting for host approval|waitlist|declined|register first|requires host approval|registration is closed|cancelled/i.test(msg)) return msg.endsWith(".") ? msg : `${msg}.`;
   if (/capacity/i.test(msg)) return "Sorry, this event is full.";
   if (/invite-only/i.test(msg)) return "This event is invite-only and your email isn't on the guest list.";
   if (/ticket/i.test(msg)) return "You need a ticket to check in.";

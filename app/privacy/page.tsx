@@ -46,7 +46,7 @@ const sections: LegalSection[] = [
             ["Account", "Your email address, and if you sign in with GitHub or Google, your name, username and profile picture from that account."],
             ["Profile", "Name, username, photo, bio, skills, links (X, LinkedIn, GitHub, website, portfolio), hours per week and what you are looking for."],
             ["Private contact", "Your contact email and, if you add it, your phone number."],
-            ["Events", "Which events you check in to and when, and any location note you add (for example \"table 4, blue shirt\")."],
+            ["Events", "Events you register for and check in to, your registration status, answers to any questions the host asks, and any location note you add (for example \"table 4, blue shirt\")."],
             ["Projects and requests", "Projects you post, open roles, join requests and invites you send or receive, and their status."],
             ["Project spaces", "Messages, tasks, shared links and notes inside projects you are a member of."],
             ["Uploads", "Photos and videos you add to your profile, projects or events."],
@@ -65,7 +65,7 @@ const sections: LegalSection[] = [
       <ul>
         <li>To run the service: sign you in, show your profile and projects, deliver requests and messages, and power the live event board.</li>
         <li>To match people: for example the &ldquo;Needs my skills&rdquo; filter compares your skills with open roles.</li>
-        <li>To send you emails you would expect: sign-in links, new requests or invites when you are offline, and event recaps after events you attended.</li>
+        <li>To send you emails you would expect: sign-in links, new requests or invites when you are offline, updates about your registration, reminders before events you are going to, messages from the hosts of events you registered for, and event recaps.</li>
         <li>To keep Countmein safe: review reports, prevent spam and abuse, and enforce our <Link href="/terms">Terms</Link>.</li>
         <li>To fix bugs and improve the product.</li>
       </ul>
@@ -94,7 +94,7 @@ const sections: LegalSection[] = [
         rows={[
           ["Anyone", "Your public profile (name, username, photo, bio, skills, links, availability) and your projects. Never your email or phone."],
           ["People at an event", "For public events, anyone can see the board. For unlisted and invite-only events, only checked-in attendees and the organizer see who is there and which projects are shown."],
-          ["Event organizers", "The list of attendees who checked in to their event, including skills, check-in time and location notes, which they can export to run the event."],
+          ["Event hosts", "For events you register for or check in to: your profile, registration status and answers, check-in time and location note. Hosts and co-hosts can export this to run the event and can send you event updates."],
           ["Project founders", "The requests you send to their project, including your message and profile."],
           ["Your collaborators", "Your contact email and phone, only after a request or invite between you is accepted. Members of a project space see its messages, tasks and links."],
           ["Blocked users", "People you block cannot see your profile or projects, or send you requests."],
