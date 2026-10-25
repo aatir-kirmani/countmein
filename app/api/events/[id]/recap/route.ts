@@ -7,8 +7,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { data: event } = await supabase.from("events").select("id").eq("id", id).eq("organizer_id", user.id).single();
-  if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Owners and co-hosts can send the recap.
+  const { data: isHost } = await supabase.rpc("is_event_organizer", { eid: id });
+  if (!isHost) return NextResponse.json({ error: "Not found" }, { status: 404 });
   try {
     const sent = await sendEventRecap(id);
     return NextResponse.json({ sent, configured: emailConfigured() });

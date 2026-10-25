@@ -1,12 +1,14 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import { EventMediaEditor } from "@/components/EventMediaEditor";
 import { ChoiceCards, Field, FormSection, Segmented, Stepper, StickyActions, Toggle } from "@/components/ui/Form";
-import type { EventRow } from "@/lib/types";
+import { Sheet } from "@/components/b/Sheet";
+import type { EventRow, RegistrationQuestion } from "@/lib/types";
 import { cn, isGoogleMapsUrl } from "@/lib/utils";
+import { browserTimeZone, fmtInZone, timeZoneOptions, tzLabel, utcToZoned, zonedToUtc } from "@/lib/time";
 
 type Series = { id: string; name: string };
 type Visibility = EventRow["visibility"];
@@ -14,38 +16,62 @@ type Visibility = EventRow["visibility"];
 // Paid tickets need Creem configured on the server; set NEXT_PUBLIC_PAYMENTS_ENABLED=true alongside the Creem keys.
 const PAYMENTS_ENABLED = process.env.NEXT_PUBLIC_PAYMENTS_ENABLED === "true";
 const DESC_MAX = 600;
+const MAX_QUESTIONS = 10;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const dateOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const timeOf = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
-/** Next Thursday 7pm local, a sensible default for a meetup. */
-function defaultStart() {
+/** Next Thursday's date: a sensible default for a meetup (time defaults to 7pm in the event's zone). */
+function defaultDate() {
   const d = new Date();
   d.setDate(d.getDate() + ((4 - d.getDay() + 7) % 7 || 7));
-  d.setHours(19, 0, 0, 0);
-  return d;
+  return dateOf(d);
+}
+
+function nextDay(date: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  const n = new Date(Date.UTC(y, m - 1, d + 1));
+  return `${n.getUTCFullYear()}-${pad(n.getUTCMonth() + 1)}-${pad(n.getUTCDate())}`;
 }
 
 function slugify(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40) || "series";
 }
 
-/** Combine a date and two times; an end time earlier than the start rolls over to the next day. */
-function toRange(date: string, start: string, end: string) {
+/** Wall-clock date and times in `tz` to UTC instants; an end time earlier than the start rolls to the next day. */
+export function toRange(date: string, start: string, end: string, tz: string) {
   if (!date || !start || !end) return null;
-  const s = new Date(`${date}T${start}`);
-  const e = new Date(`${date}T${end}`);
-  if (e <= s) e.setDate(e.getDate() + 1);
+  const s = zonedToUtc(date, start, tz);
+  let e = zonedToUtc(date, end, tz);
+  if (e <= s) e = zonedToUtc(nextDay(date), end, tz);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return null;
   return { s, e };
 }
 
-function fmtRange(r: { s: Date; e: Date } | null) {
+export function fmtRange(r: { s: Date; e: Date } | null, tz: string) {
   if (!r) return "Pick a date and time";
-  const day = r.s.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-  const t = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const si = r.s.toISOString();
+  const day = fmtInZone(si, tz, { weekday: "short", day: "numeric", month: "short" });
+  const t = (d: Date) => fmtInZone(d.toISOString(), tz, { hour: "numeric", minute: "2-digit" });
   const hours = Math.round(((r.e.getTime() - r.s.getTime()) / 36e5) * 10) / 10;
-  return `${day}, ${t(r.s)} to ${t(r.e)} (${hours}h)`;
+  return `${day}, ${t(r.s)} to ${t(r.e)} ${tzLabel(si, tz)} (${hours}h)`;
+}
+
+const newQuestionId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2)).replace(/-/g, "").slice(0, 8);
+
+/** Prefilled guest update after the time or place changes. */
+export function updateMessage(name: string, moved: boolean, relocated: boolean, when: string, where: string, details: string | null) {
+  const what = moved && relocated ? "time and place" : moved ? "time" : "place";
+  const lines = [
+    `Heads up: we've updated the ${what} for ${name}.`,
+    "",
+    `When: ${when.replace(/ \([\d.]+h\)$/, "")}`,
+    where ? `Where: ${where}` : null,
+    details ? `Finding it: ${details}` : null,
+    "",
+    "See you there!",
+  ].filter((l): l is string => l !== null);
+  return { subject: `New ${what} for ${name}`, body: lines.join("\n") };
 }
 
 const VISIBILITY: { value: Visibility; label: string; description: string; icon: string }[] = [
@@ -61,15 +87,23 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
   const [busy, setBusy] = useState(false);
   const [tried, setTried] = useState(false);
 
-  const start0 = event ? new Date(event.starts_at) : defaultStart();
-  const end0 = event ? new Date(event.ends_at) : new Date(start0.getTime() + 3 * 36e5);
+  // Browser-dependent values (time zone, zone list, today's date) are filled in after mount so server and client HTML match.
+  const [mounted, setMounted] = useState(false);
+  const tz0 = event?.timezone || "UTC";
+  const [zones, setZones] = useState<string[]>(() => Array.from(new Set([tz0, "UTC"])));
+  const start0 = event ? utcToZoned(event.starts_at, tz0) : { date: "", time: "19:00" };
+  const end0 = event ? utcToZoned(event.ends_at, tz0) : { date: start0.date, time: "22:00" };
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [notify, setNotify] = useState({ subject: "", body: "" });
+  const [notifying, setNotifying] = useState(false);
 
   const [f, setF] = useState({
     name: event?.name ?? "",
     description: event?.description ?? "",
-    date: dateOf(start0),
-    start: timeOf(start0),
-    end: timeOf(end0),
+    timezone: tz0,
+    date: start0.date,
+    start: start0.time,
+    end: end0.time,
     venue: event?.venue ?? "",
     city: event?.city ?? "",
     maps_url: event?.maps_url ?? "",
@@ -84,14 +118,35 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
     new_series: "",
     paid: !!event?.ticket_price_cents,
     price: event?.ticket_price_cents ? (event.ticket_price_cents / 100).toString() : "10",
+    require_approval: event?.require_approval ?? false,
+    waitlist_enabled: event?.waitlist_enabled ?? false,
+    registration_open: event?.registration_open ?? true,
+    show_guest_list: event?.show_guest_list ?? true,
+    questions: (event?.registration_questions ?? []) as RegistrationQuestion[],
   });
   const patch = (p: Partial<typeof f>) => setF((prev) => ({ ...prev, ...p }));
+  useEffect(() => {
+    setMounted(true);
+    setZones(timeZoneOptions());
+    if (!event) setF((prev) => ({ ...prev, timezone: browserTimeZone(), date: prev.date || defaultDate() }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const bind = (k: "name" | "description" | "date" | "start" | "end" | "venue" | "city" | "maps_url" | "location_details" | "new_series") => ({
     value: f[k],
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => patch({ [k]: e.target.value }),
   });
 
-  const range = useMemo(() => toRange(f.date, f.start, f.end), [f.date, f.start, f.end]);
+  const range = useMemo(() => toRange(f.date, f.start, f.end, f.timezone), [f.date, f.start, f.end, f.timezone]);
+  const zoneHint = useMemo(() => {
+    if (!range || !mounted) return null;
+    const mine = browserTimeZone();
+    if (mine === f.timezone) return `Times are in your time zone (${tzLabel(range.s, f.timezone)}).`;
+    return `That's ${fmtInZone(range.s.toISOString(), mine, { weekday: "short", hour: "numeric", minute: "2-digit" })} your time (${tzLabel(range.s, mine)}).`;
+  }, [range, f.timezone, mounted]);
+
+  const setQuestion = (id: string, p: Partial<RegistrationQuestion>) => patch({ questions: f.questions.map((q) => (q.id === id ? { ...q, ...p } : q)) });
+  const addQuestion = () => { if (f.questions.length < MAX_QUESTIONS) patch({ questions: [...f.questions, { id: newQuestionId(), label: "", required: false }] }); };
+  const removeQuestion = (id: string) => patch({ questions: f.questions.filter((q) => q.id !== id) });
   const setDuration = (h: number) => {
     if (!f.start) return;
     const [hh, mm] = f.start.split(":").map(Number);
@@ -108,6 +163,7 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
     capacity: f.limited && !(Number(f.capacity) >= 1) ? "Set a capacity of at least 1" : null,
     price: PAYMENTS_ENABLED && f.paid && !(Number(f.price) >= 1) ? "Tickets start at 1.00" : null,
     series: f.seriesMode === "new" && !f.new_series.trim() ? "Name your series" : f.seriesMode === "existing" && !f.series_id ? "Pick a series" : null,
+    questions: f.questions.some((q) => !q.label.trim()) ? "Write each question, or remove the empty ones" : null,
   };
   const firstError = Object.values(errors).find(Boolean);
   const show = (k: keyof typeof errors) => (tried ? errors[k] : null);
@@ -147,6 +203,12 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
       visibility: f.visibility,
       series_id: seriesId,
       ticket_price_cents: PAYMENTS_ENABLED && f.paid ? Math.round(Number(f.price) * 100) : 0,
+      timezone: f.timezone,
+      require_approval: f.require_approval,
+      waitlist_enabled: f.limited && f.waitlist_enabled,
+      registration_open: f.registration_open,
+      show_guest_list: f.show_guest_list,
+      registration_questions: f.questions.map((q) => ({ id: q.id, label: q.label.trim().slice(0, 140), required: q.required })),
     };
 
     const res = event
@@ -155,8 +217,33 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
     setBusy(false);
     if (res.error) return toast(res.error.message, { kind: "error" });
     toast(event ? "Saved. Looking good." : "Your event is live. Time to print that QR!", { kind: "success" });
-    if (event) router.refresh();
-    else router.push(`/organizer/${res.data.id}`);
+    if (!event) return router.push(`/organizer/${res.data.id}`);
+    const moved = row.starts_at !== new Date(event.starts_at).toISOString() || row.ends_at !== new Date(event.ends_at).toISOString() || row.timezone !== event.timezone;
+    const relocated = (row.venue ?? "") !== (event.venue ?? "") || (row.city ?? "") !== (event.city ?? "") || (row.maps_url ?? "") !== (event.maps_url ?? "");
+    if ((moved || relocated) && !event.cancelled_at) {
+      setNotify(updateMessage(row.name, moved, relocated, fmtRange(range, f.timezone), [row.venue, row.city].filter(Boolean).join(", "), row.location_details));
+      setNotifyOpen(true);
+    }
+    router.refresh();
+  };
+
+  const sendNotify = async () => {
+    if (!event) return;
+    setNotifying(true);
+    const res = await fetch(`/api/events/${event.id}/messages`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subject: notify.subject, body: notify.body, audience: "all" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setNotifying(false);
+    if (!res.ok) return toast(data.error ?? "Couldn't send the update", { kind: "error" });
+    setNotifyOpen(false);
+    toast(
+      data.configured
+        ? `Update sent${data.emailed ? ` to ${data.emailed} ${data.emailed === 1 ? "guest" : "guests"}` : ""}. It's on the event page too.`
+        : "Update posted on the event page. Email isn't set up yet.",
+      { kind: "success" },
+    );
   };
 
   return (
@@ -178,7 +265,7 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
         <div className="flex items-end justify-between gap-4 border-t border-dashed border-white/15 px-5 py-4">
           <div className="min-w-0">
             <p className="truncate font-display text-2xl font-extrabold leading-tight">{f.name.trim() || "Your event name"}</p>
-            <p className="mt-0.5 truncate text-sm text-zinc-300">{fmtRange(range)}</p>
+            <p className="mt-0.5 truncate text-sm text-zinc-300">{fmtRange(range, f.timezone)}</p>
             <p className="truncate text-sm text-zinc-400">{[f.venue, f.city].filter(Boolean).join(", ") || "Venue, city"}</p>
           </div>
           <div className="shrink-0 text-right">
@@ -224,9 +311,16 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
             </button>
           ))}
           <span className={cn("ml-auto text-xs font-medium", show("when") ? "text-red-600" : "text-zinc-500 dark:text-zinc-400")}>
-            {show("when") ?? fmtRange(range)}
+            {show("when") ?? fmtRange(range, f.timezone)}
           </span>
         </div>
+        <Field label="Time zone" htmlFor="ev-tz" hint={zoneHint}>
+          <select id="ev-tz" className="input" value={f.timezone} onChange={(e) => patch({ timezone: e.target.value })}>
+            {(zones.includes(f.timezone) ? zones : [f.timezone, ...zones]).map((z) => (
+              <option key={z} value={z}>{z.replace(/_/g, " ")} ({tzLabel(range?.s ?? new Date(), z)})</option>
+            ))}
+          </select>
+        </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Venue" optional htmlFor="ev-venue">
             <input id="ev-venue" className="input" placeholder="Astrolabs, Cluster R" autoComplete="off" {...bind("venue")} />
@@ -291,7 +385,7 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
           </p>
         )}
 
-        <Toggle label="Limit capacity" description="Check-ins stop once the room is full." checked={f.limited} onChange={(v) => patch({ limited: v, capacity: v && !f.capacity ? "50" : f.capacity })} />
+        <Toggle label="Limit capacity" description="Registrations stop once the room is full." checked={f.limited} onChange={(v) => patch({ limited: v, capacity: v && !f.capacity ? "50" : f.capacity })} />
         {f.limited && (
           <Field label="Capacity" htmlFor="ev-cap" error={show("capacity")}>
             <Stepper id="ev-cap" value={f.capacity} onChange={(v) => patch({ capacity: v })} min={1} max={5000} step={5} suffix="people" />
@@ -310,7 +404,66 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
         )}
       </FormSection>
 
-      <FormSection step={5} title="Part of a series?" description="Recurring meetups get their own community page.">
+      <FormSection step={5} title="Registration" description="Decide who gets a spot and what you'd like to know about them.">
+        <div className="grid gap-2.5">
+          <Toggle
+            label="Require approval" description="Guests request to join and you approve them. Great for curated rooms."
+            checked={f.require_approval} onChange={(v) => patch({ require_approval: v })}
+          />
+          {f.limited && (
+            <Toggle
+              label="Waitlist when full" description="Once capacity is reached, new guests join a waitlist. Spots are filled in order when someone cancels."
+              checked={f.waitlist_enabled} onChange={(v) => patch({ waitlist_enabled: v })}
+            />
+          )}
+          <Toggle
+            label="Registration open" description="Turn off to stop new sign-ups. Registered guests can still check in."
+            checked={f.registration_open} onChange={(v) => patch({ registration_open: v })}
+          />
+          <Toggle
+            label="Show guest list on the event page" description="Faces and the going count are shown to visitors. Checked-in attendees always see who's in the room."
+            checked={f.show_guest_list} onChange={(v) => patch({ show_guest_list: v })}
+          />
+        </div>
+
+        <fieldset data-invalid={!!show("questions")}>
+          <legend className="label">Registration questions <span className="text-xs font-medium text-zinc-400">optional</span></legend>
+          <p className="hint -mt-1 mb-3">Asked when someone registers. Answers show up in your guest list. Up to {MAX_QUESTIONS}.</p>
+          <div className="space-y-2.5">
+            {f.questions.map((q, i) => (
+              <div key={q.id} className="rounded-2xl bg-zinc-50 p-3 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-800/40 dark:ring-zinc-700/70">
+                <div className="flex items-center gap-2">
+                  <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white font-mono text-xs font-bold text-zinc-500 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-700">{i + 1}</span>
+                  <label htmlFor={`q-${q.id}`} className="sr-only">Question {i + 1}</label>
+                  <input
+                    id={`q-${q.id}`} className="input h-11 flex-1 bg-white dark:bg-zinc-900" maxLength={140} placeholder={i === 0 ? "What are you building?" : "Ask anything"}
+                    value={q.label} aria-invalid={tried && !q.label.trim()} onChange={(e) => setQuestion(q.id, { label: e.target.value })}
+                  />
+                  <button type="button" onClick={() => removeQuestion(q.id)} className="btn-ghost btn-sm px-2.5 text-zinc-500" aria-label={`Remove question ${i + 1}`}>✕</button>
+                </div>
+                <label className="mt-2 flex w-fit cursor-pointer items-center gap-2 pl-9 text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                  <input type="checkbox" className="h-4 w-4 accent-[#6d28d9]" checked={q.required} onChange={(e) => setQuestion(q.id, { required: e.target.checked })} />
+                  Required
+                </label>
+              </div>
+            ))}
+            {f.questions.length < MAX_QUESTIONS && (
+              <button
+                type="button" onClick={addQuestion}
+                className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-300 text-sm font-bold text-zinc-600 transition hover:border-brand hover:text-brand dark:border-zinc-700 dark:text-zinc-400"
+              >
+                <span aria-hidden>＋</span> {f.questions.length ? "Add another question" : "Add a question"}
+              </button>
+            )}
+          </div>
+          {show("questions") && <p role="alert" className="mt-2 text-xs font-medium text-red-600">{show("questions")}</p>}
+          {f.questions.some((q) => q.required) && !f.require_approval && (
+            <p className="hint">With a required question, walk-ins register first, then check in.</p>
+          )}
+        </fieldset>
+      </FormSection>
+
+      <FormSection step={6} title="Part of a series?" description="Recurring meetups get their own community page.">
         <Segmented
           label="Series" hideLabel value={f.seriesMode} onChange={(v) => patch({ seriesMode: v })}
           options={[
@@ -335,12 +488,29 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
 
       <StickyActions>
         <p className="hidden min-w-0 flex-1 truncate text-sm text-zinc-600 dark:text-zinc-400 sm:block">
-          {tried && firstError ? <span className="font-medium text-red-600">{firstError}</span> : fmtRange(range)}
+          {tried && firstError ? <span className="font-medium text-red-600">{firstError}</span> : fmtRange(range, f.timezone)}
         </p>
         <button className="btn-primary w-full sm:w-auto sm:min-w-[200px]" disabled={busy}>
           {busy ? "Saving…" : event ? "Save changes" : "Create event 🎉"}
         </button>
       </StickyActions>
+
+      <Sheet open={notifyOpen} onClose={() => { if (!notifying) setNotifyOpen(false); }} title="Let your guests know?" subtitle="We'll post this on the event page and email registered guests.">
+        <div className="space-y-4">
+          <Field label="Subject" htmlFor="nt-subject">
+            <input id="nt-subject" className="input" maxLength={140} value={notify.subject} onChange={(e) => setNotify({ ...notify, subject: e.target.value })} />
+          </Field>
+          <Field label="Message" htmlFor="nt-body" counter={{ value: notify.body.length, max: 4000 }}>
+            <textarea id="nt-body" className="input min-h-[160px]" maxLength={4000} value={notify.body} onChange={(e) => setNotify({ ...notify, body: e.target.value })} />
+          </Field>
+          <div className="flex gap-2">
+            <button type="button" className="btn-ghost flex-1" onClick={() => setNotifyOpen(false)} disabled={notifying}>Not now</button>
+            <button type="button" className="btn-primary flex-1" onClick={sendNotify} disabled={notifying || !notify.subject.trim() || !notify.body.trim()}>
+              {notifying ? "Sending…" : "Send update"}
+            </button>
+          </div>
+        </div>
+      </Sheet>
     </form>
   );
 }

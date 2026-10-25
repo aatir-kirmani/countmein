@@ -15,15 +15,32 @@ export default async function MePage() {
   const { supabase, user, profile } = await getProfile();
   if (!user || !profile) redirect("/login?next=/me");
 
-  const [{ data: contact }, { data: projects }, { data: checkins }, { data: memberships }, { data: blocks }] = await Promise.all([
+  const [{ data: contact }, { data: projects }, { data: checkins }, { data: memberships }, { data: blocks }, { data: regs }] = await Promise.all([
     supabase.from("user_contacts").select("contact_email, contact_phone").eq("user_id", user.id).single(),
     supabase.from("projects").select("*").eq("owner_id", user.id).order("created_at", { ascending: false }),
     supabase.from("event_checkins").select("checked_in_at, events(*)").eq("user_id", user.id).order("checked_in_at", { ascending: false }),
     supabase.from("project_members").select("role, projects(*)").eq("user_id", user.id),
     supabase.from("blocks").select("blocked_id, profiles!blocks_blocked_id_fkey(name, username)").eq("blocker_id", user.id),
+    supabase.from("event_registrations").select("status, events(*)").eq("user_id", user.id).in("status", ["going", "pending", "waitlist"]),
   ]);
 
-  const events = (checkins ?? []).map((c: { events: unknown }) => c.events as EventRow).filter(Boolean);
+  // Checked-in events plus upcoming registrations, each with the guest's status. Upcoming first (soonest), then past.
+  const byId = new Map<string, { event: EventRow; tag: "checked_in" | "going" | "pending" | "waitlist" }>();
+  for (const r of (regs ?? []) as { status: "going" | "pending" | "waitlist"; events: unknown }[]) {
+    const ev = r.events as EventRow | null;
+    if (ev) byId.set(ev.id, { event: ev, tag: r.status });
+  }
+  for (const c of (checkins ?? []) as { events: unknown }[]) {
+    const ev = c.events as EventRow | null;
+    if (ev) byId.set(ev.id, { event: ev, tag: "checked_in" });
+  }
+  const now = Date.now();
+  const myEvents = Array.from(byId.values()).sort((a, b) => {
+    const ua = new Date(a.event.ends_at).getTime() > now, ub = new Date(b.event.ends_at).getTime() > now;
+    if (ua !== ub) return ua ? -1 : 1;
+    const da = new Date(a.event.starts_at).getTime(), db = new Date(b.event.starts_at).getTime();
+    return ua ? da - db : db - da;
+  });
   const joined = (memberships ?? []).map((m: { role: string; projects: unknown }) => ({ role: m.role, project: m.projects as Project })).filter((m) => m.project && m.project.owner_id !== user.id);
   const blocked = (blocks ?? []).map((b: { blocked_id: string; profiles: unknown }) => ({ id: b.blocked_id, who: b.profiles as { name: string; username: string } | null }));
 
@@ -126,15 +143,22 @@ export default async function MePage() {
             <p className="eyebrow">Attendee</p>
             <h2 className="text-2xl font-extrabold">My events</h2>
           </div>
-          {events.length === 0 ? (
+          {myEvents.length === 0 ? (
             <p className="rounded-3xl bg-zinc-100 p-4 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">No events yet. <Link href="/scan" className="font-bold text-brand underline underline-offset-4 dark:text-violet-400">Scan a QR code</Link> at your next meetup.</p>
           ) : (
-            events.map((e) => {
+            myEvents.map(({ event: e, tag }) => {
               const st = eventStatus(e);
+              const chip =
+                st === "cancelled" ? { label: "Cancelled", cls: "bg-red-100 text-red-800 dark:bg-red-400/15 dark:text-red-200" }
+                : st === "live" ? { label: "● Live", cls: "bg-red-500 text-white" }
+                : tag === "going" ? { label: "Going", cls: "bg-lime-300 text-zinc-900" }
+                : tag === "pending" ? { label: "Pending", cls: "bg-amber-100 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200" }
+                : tag === "waitlist" ? { label: "Waitlist", cls: "bg-sky-100 text-sky-900 dark:bg-sky-400/15 dark:text-sky-200" }
+                : { label: st === "ended" ? "Attended" : "Checked in", cls: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" };
               return (
                 <Link key={e.id} href={`/e/${e.code}`} className="card flex items-center justify-between gap-3 p-4 transition hover:-translate-y-0.5">
-                  <div className="min-w-0"><p className="truncate font-bold">{e.name}</p><p className="text-xs text-zinc-500">{fmtDate(e.starts_at)}{e.city ? ` · ${e.city}` : ""}</p></div>
-                  <span className={`chip shrink-0 ${st === "live" ? "bg-red-500 text-white" : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"}`}>{st === "live" ? "● Live" : st}</span>
+                  <div className="min-w-0"><p className="truncate font-bold">{e.name}</p><p className="text-xs text-zinc-500">{fmtDate(e.starts_at, e.timezone)}{e.city ? ` · ${e.city}` : ""}</p></div>
+                  <span className={`chip shrink-0 ${chip.cls}`}>{chip.label}</span>
                 </Link>
               );
             })

@@ -9,8 +9,9 @@ import { Poster } from "@/components/c/Poster";
 export default async function PosterPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
   const { supabase, user, profile } = await getProfile();
-  const { data: event } = await supabase.from("events").select("id,name,code,starts_at,venue,organizer_id").eq("id", eventId).single();
-  if (!event || (event.organizer_id !== user?.id && !profile?.is_admin)) notFound();
+  const { data: event } = await supabase.from("events").select("id,name,code,starts_at,venue,organizer_id,timezone").eq("id", eventId).maybeSingle();
+  const { data: isHost } = event ? await supabase.rpc("is_event_organizer", { eid: eventId }) : { data: false };
+  if (!event || !user || (!isHost && !profile?.is_admin)) notFound();
   const site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
   const url = `${site}/e/${event.code}`;
   const qr = await QRCode.toDataURL(url, { width: 900, margin: 1 });
@@ -34,7 +35,7 @@ export default async function PosterPage({ params }: { params: Promise<{ eventId
         </div>
         <PrintButton />
       </div>
-      <Poster name={event.name} code={event.code} when={fmtDate(event.starts_at)} venue={event.venue} qr={qr} url={url} site={site} />
+      <Poster name={event.name} code={event.code} when={fmtDate(event.starts_at, event.timezone)} venue={event.venue} qr={qr} url={url} site={site} />
     </>
   );
 }

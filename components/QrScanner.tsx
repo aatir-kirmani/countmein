@@ -17,8 +17,19 @@ type DetectorLike = { detect: (src: CanvasImageSource) => Promise<{ rawValue: st
  * Camera QR scanner. Uses the native BarcodeDetector where available (Android Chrome)
  * and falls back to jsQR on canvas frames (iOS Safari, desktop).
  */
-export function QrScanner({ onClose }: { onClose?: () => void }) {
+export function QrScanner({ onClose, onResult, prompt, fallback = "Type the event code instead." }: {
+  onClose?: () => void;
+  /** When set, the scanner stays open and hands every new value to this callback instead of navigating. */
+  onResult?: (raw: string) => boolean | Promise<boolean>;
+  prompt?: string;
+  /** What to suggest when the camera can't be used. */
+  fallback?: string;
+}) {
   const router = useRouter();
+  const onResultRef = useRef(onResult);
+  onResultRef.current = onResult;
+  const fallbackRef = useRef(fallback);
+  fallbackRef.current = fallback;
   const video = useRef<HTMLVideoElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +43,18 @@ export function QrScanner({ onClose }: { onClose?: () => void }) {
     let detector: DetectorLike | null = null;
     let jsQR: typeof import("jsqr").default | null = null;
     let busy = false;
+    let last = { value: "", at: 0 };
 
-    const handle = (value: string) => {
+    const handle = async (value: string) => {
+      const cb = onResultRef.current;
+      if (cb) {
+        // Continuous mode: ignore the same code for 1.5s so one ticket isn't processed twice.
+        const now = Date.now();
+        if (value === last.value && now - last.at < 1500) return false;
+        last = { value, at: now };
+        try { await cb(value); } catch { /* caller shows its own errors */ }
+        return false;
+      }
       const code = parseEventCode(value);
       if (!code) {
         setHint("That QR code isn't a Countmein event. Try the one by the door.");
@@ -54,7 +75,7 @@ export function QrScanner({ onClose }: { onClose?: () => void }) {
         try {
           if (detector) {
             const codes = await detector.detect(v);
-            if (codes[0] && handle(codes[0].rawValue)) return;
+            if (codes[0] && (await handle(codes[0].rawValue))) return;
           } else if (jsQR && canvas.current) {
             const c = canvas.current;
             const scale = Math.min(1, 640 / v.videoWidth);
@@ -65,7 +86,7 @@ export function QrScanner({ onClose }: { onClose?: () => void }) {
               ctx.drawImage(v, 0, 0, c.width, c.height);
               const img = ctx.getImageData(0, 0, c.width, c.height);
               const res = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-              if (res?.data && handle(res.data)) return;
+              if (res?.data && (await handle(res.data))) return;
             }
           }
         } catch {
@@ -78,7 +99,7 @@ export function QrScanner({ onClose }: { onClose?: () => void }) {
 
     (async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
-        setError("Your browser can't open the camera here. Type the event code instead.");
+        setError(`Your browser can't open the camera here. ${fallbackRef.current}`);
         return;
       }
       try {
@@ -87,8 +108,8 @@ export function QrScanner({ onClose }: { onClose?: () => void }) {
         const name = (e as DOMException)?.name;
         setError(
           name === "NotAllowedError"
-            ? "Camera access was blocked. Allow camera access for this site in your browser settings, or type the event code instead."
-            : "We couldn't open your camera. Type the event code instead."
+            ? `Camera access was blocked. Allow camera access for this site in your browser settings. ${fallbackRef.current}`
+            : `We couldn't open your camera. ${fallbackRef.current}`
         );
         return;
       }
@@ -139,7 +160,7 @@ export function QrScanner({ onClose }: { onClose?: () => void }) {
         )}
       </div>
       <p role="status" className="mt-3 min-h-[1.25rem] text-center text-sm text-zinc-600 dark:text-zinc-400">
-        {hint ?? (error ? "" : "Point your camera at the event QR code.")}
+        {hint ?? (error ? "" : prompt ?? "Point your camera at the event QR code.")}
       </p>
       {onClose && (
         <button type="button" onClick={onClose} className="btn-secondary mt-2 w-full">Cancel</button>

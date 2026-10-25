@@ -8,14 +8,20 @@ import type { EventRow } from "@/lib/types";
 
 export default async function OrganizerPage() {
   const { supabase, user, profile } = await getProfile();
-  const [{ data: events }, { data: series }] = await Promise.all([
+  const [{ data: events }, { data: cohosted }, { data: series }] = await Promise.all([
     supabase.from("events").select("*, event_checkins(count)").eq("organizer_id", user!.id).order("starts_at", { ascending: false }),
+    supabase.from("event_hosts").select("role, event:events(*, event_checkins(count))").eq("user_id", user!.id),
     supabase.from("event_series").select("id,name,slug,description,city,cover_url").eq("organizer_id", user!.id).order("created_at"),
   ]);
-  const rows = (events ?? []) as (EventRow & { event_checkins: { count: number }[] })[];
+  type Row = EventRow & { event_checkins: { count: number }[]; hostRole?: "cohost" | "manager" };
+  const own = (events ?? []) as Row[];
+  const shared = ((cohosted ?? []) as unknown as { role: "cohost" | "manager"; event: Row | null }[])
+    .filter((h) => h.event && !own.some((e) => e.id === h.event!.id))
+    .map((h) => ({ ...h.event!, hostRole: h.role }));
+  const rows: Row[] = [...own, ...shared].sort((a, b) => b.starts_at.localeCompare(a.starts_at));
   const live = rows.filter((e) => eventStatus(e) === "live");
-  const upcoming = rows.filter((e) => eventStatus(e) === "upcoming");
-  const past = rows.filter((e) => eventStatus(e) === "ended");
+  const upcoming = rows.filter((e) => eventStatus(e) === "upcoming").reverse();
+  const past = rows.filter((e) => ["ended", "cancelled"].includes(eventStatus(e)));
   const totalCheckins = rows.reduce((n, e) => n + (e.event_checkins?.[0]?.count ?? 0), 0);
 
   return (
@@ -52,12 +58,12 @@ export default async function OrganizerPage() {
               </div>
             ))}
           </section>
-          {([["Happening now", live], ["Coming up", upcoming], ["Past events", past]] as const).map(([title, list]) =>
+          {([["Happening now", live], ["Coming up", upcoming], ["Past and cancelled", past]] as const).map(([title, list]) =>
             list.length ? (
               <section key={title}>
                 <h2 className="mb-3 text-lg font-extrabold">{title}</h2>
                 <ul className="grid gap-3 sm:grid-cols-2">
-                  {list.map((e) => <li key={e.id}><OrganizerEventCard event={e} checkins={e.event_checkins?.[0]?.count ?? 0} /></li>)}
+                  {list.map((e) => <li key={e.id}><OrganizerEventCard event={e} checkins={e.event_checkins?.[0]?.count ?? 0} hostRole={e.hostRole} /></li>)}
                 </ul>
               </section>
             ) : null

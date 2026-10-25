@@ -22,5 +22,14 @@ export default async function BoardPage({ params }: { params: Promise<{ code: st
       </div>
     );
   }
+  if ((event as EventRow).cancelled_at) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-zinc-950 px-8 text-center text-white">
+        <p className="font-mono text-sm font-bold uppercase tracking-[0.3em] text-red-400">Cancelled</p>
+        <p className="font-display text-6xl font-extrabold">{(event as EventRow).name}</p>
+        <p className="max-w-2xl text-2xl text-zinc-300">{(event as EventRow).cancel_reason ?? "This event has been cancelled. See you at the next one."}</p>
+      </div>
+    );
+  }
   return <ProjectorBoard event={event as EventRow} sponsors={(sponsors ?? []) as { id: string; name: string; logo_url: string | null }[]} />;
 }
