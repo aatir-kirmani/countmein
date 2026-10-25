@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getUser } from "@/lib/supabase/server";
 import { TicketCode } from "@/components/landing/TicketCode";
 import { LivePhone } from "@/components/landing/LivePhone";
+import { RotatingSnack } from "@/components/landing/RotatingSnack";
 import { eventStatus, fmtDate } from "@/lib/utils";
 import { SKILLS } from "@/lib/constants";
 
@@ -73,7 +74,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
               co-founder
               <Squiggle className="absolute -bottom-2 left-0 h-3 w-full text-lime-400" />
             </span>{" "}
-            before the pizza runs out<span className="inline-block origin-bottom motion-safe:animate-wiggle">🍕</span>
+            before <RotatingSnack />
           </h1>
           <p className="mx-auto mt-6 max-w-xl animate-rise text-lg text-zinc-600 [animation-delay:160ms] dark:text-zinc-300 lg:mx-0">
             Check in, show what you&apos;re building, and tap <strong className="text-zinc-900 dark:text-white">Count me in</strong> on projects that need you.

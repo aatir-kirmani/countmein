@@ -19,6 +19,7 @@ export default {
         wiggle: { "0%,100%": { transform: "rotate(-6deg)" }, "50%": { transform: "rotate(6deg)" } },
         rise: { from: { transform: "translateY(16px)", opacity: "0" }, to: { transform: "translateY(0)", opacity: "1" } },
         blink: { "0%,100%": { opacity: "1" }, "50%": { opacity: ".25" } },
+        snack: { "0%": { transform: "translateY(55%) rotate(-3deg)", opacity: "0", filter: "blur(4px)" }, "100%": { transform: "translateY(0) rotate(0)", opacity: "1", filter: "blur(0)" } },
         pop: { "0%": { transform: "scale(.6)", opacity: "0" }, "60%": { transform: "scale(1.05)", opacity: "1" }, "100%": { transform: "scale(1)" } },
       },
       animation: {
@@ -28,6 +29,7 @@ export default {
         wiggle: "wiggle 1.2s ease-in-out infinite",
         rise: "rise .6s cubic-bezier(.2,.8,.2,1) both",
         blink: "blink 1.4s ease-in-out infinite",
+        snack: "snack .45s cubic-bezier(.2,.9,.3,1.2) both",
       },
     },
   },

@@ -209,13 +209,13 @@ export function EventForm({ userId, series, event }: { userId: string; series: S
         </div>
         <div className="-mt-2 flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Length:</span>
-          {[2, 3, 4].map((h) => (
+          {[1, 2, 3, 4].map((h) => (
             <button
               key={h} type="button" onClick={() => setDuration(h)}
               className={cn("min-h-[34px] rounded-full px-3 text-xs font-bold ring-1 ring-inset transition",
                 Math.abs(duration - h) < 0.01 ? "bg-brand text-white ring-brand" : "ring-zinc-200 hover:ring-zinc-400 dark:ring-zinc-700")}
             >
-              {h} hours
+              {h} {h === 1 ? "hour" : "hours"}
             </button>
           ))}
           <span className={cn("ml-auto text-xs font-medium", show("when") ? "text-red-600" : "text-zinc-500 dark:text-zinc-400")}>
