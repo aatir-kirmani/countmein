@@ -5,6 +5,7 @@
 :root { color-scheme: light; }
 .dark { color-scheme: dark; }
 html, body { -webkit-tap-highlight-color: transparent; }
+h1, h2, h3 { @apply font-display tracking-tight; }
 body { @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 antialiased; }
 
 @layer components {
@@ -22,3 +23,12 @@ body { @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 antia
 }
 
 .skeleton { @apply animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800; }
+
+/* Landing helpers */
+.full-bleed { width: 100vw; margin-left: calc(50% - 50vw); }
+.dot-grid { background-image: radial-gradient(currentColor 1px, transparent 1px); background-size: 22px 22px; }
+.ticket-edge { -webkit-mask: radial-gradient(circle 10px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat, radial-gradient(circle 10px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+               mask: radial-gradient(circle 10px at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat, radial-gradient(circle 10px at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

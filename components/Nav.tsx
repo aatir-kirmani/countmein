@@ -18,9 +18,9 @@ export function Nav() {
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-zinc-50/90 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
-        <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4">
-          <Link href="/" className="text-lg font-extrabold tracking-tight">
-            Count<span className="text-brand">me</span>in
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
+          <Link href="/" className="font-display text-xl font-extrabold tracking-tight">
+            Count<span className="text-brand dark:text-violet-400">me</span>in<span aria-hidden className="ml-0.5 inline-block text-lime-500">✦</span>
           </Link>
           <nav className="flex items-center gap-1" aria-label="Main">
             {user ? (
