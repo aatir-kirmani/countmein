@@ -6,11 +6,23 @@ import { COMPENSATION, SKILLS, STAGES } from "@/lib/constants";
 import type { Compensation, Openness, Project, Slot, Stage } from "@/lib/types";
 import { TagPicker } from "@/components/ui/TagPicker";
 import { ImageUpload } from "@/components/ui/ImageUpload";
+import { ChoiceCards, Field, FormSection, Segmented, StickyActions } from "@/components/ui/Form";
 import { useApp } from "@/components/Providers";
 import { normalizeUrl } from "./ProfileExtras";
 
 type SlotDraft = { id?: string; specialty: string; description: string; commitment: string; compensation: Compensation; status: Slot["status"] };
 const TECH = ["Next.js", "React", "Node", "Python", "Supabase", "Postgres", "Swift", "Flutter", "AI/LLM", "Stripe", "No-code"];
+const STAGE_META: Record<Stage, { icon: string; description: string }> = {
+  idea: { icon: "💡", description: "Still on the napkin" },
+  building: { icon: "🛠️", description: "Heads down, shipping" },
+  launched: { icon: "🚀", description: "Live, finding users" },
+  revenue: { icon: "💰", description: "People are paying" },
+};
+const COMP_STYLE: Record<Compensation, string> = {
+  equity: "bg-amber-200 text-amber-950", paid: "bg-emerald-200 text-emerald-950", rev_share: "bg-sky-200 text-sky-950",
+  unpaid: "bg-rose-200 text-rose-950", tbd: "bg-zinc-200 text-zinc-900",
+};
+const emptySlot = (): SlotDraft => ({ specialty: "", description: "", commitment: "", compensation: "tbd", status: "open" });
 
 export function ProjectForm({ userId, project, slots = [], eventCode }: { userId: string; project?: Project; slots?: Slot[]; eventCode?: string | null }) {
   const supabase = createClient();
@@ -28,7 +40,7 @@ export function ProjectForm({ userId, project, slots = [], eventCode }: { userId
   const [drafts, setDrafts] = useState<SlotDraft[]>(
     slots.length
       ? slots.map((s) => ({ id: s.id, specialty: s.specialty, description: s.description ?? "", commitment: s.commitment ?? "", compensation: s.compensation, status: s.status }))
-      : [{ specialty: "", description: "", commitment: "", compensation: "tbd", status: "open" }]
+      : [emptySlot()]
   );
   const [busy, setBusy] = useState(false);
 
@@ -86,100 +98,147 @@ export function ProjectForm({ userId, project, slots = [], eventCode }: { userId
   };
 
   return (
-    <form onSubmit={save} className="space-y-5">
-      <div>
-        <label htmlFor="pn" className="label">Project name</label>
-        <input id="pn" required maxLength={60} className="input" value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <div>
-        <label htmlFor="pp" className="label">One-line pitch <span className="muted">({pitch.length}/100)</span></label>
-        <input id="pp" required maxLength={100} className="input" value={pitch} onChange={(e) => setPitch(e.target.value)} placeholder="Stripe for indie game devs" />
-      </div>
-      <fieldset>
-        <legend className="label">Stage</legend>
-        <div className="grid grid-cols-4 gap-2">
-          {STAGES.map((s) => (
-            <button type="button" key={s.value} aria-pressed={stage === s.value} onClick={() => setStage(s.value)}
-              className={`min-h-[44px] rounded-xl text-sm font-medium ring-1 ${stage === s.value ? "bg-brand text-white ring-brand" : "bg-white ring-zinc-300 dark:bg-zinc-900 dark:ring-zinc-700"}`}>
-              {s.label}
+    <form onSubmit={save} className="space-y-4">
+      <FormSection step={1} title="What are you building?" description="The stuff people see on your card.">
+        <Field label="Project name" htmlFor="pn" required counter={{ value: name.length, max: 60 }}>
+          <input id="pn" required maxLength={60} className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="BuildFast" />
+        </Field>
+        <Field label="One-line pitch" htmlFor="pp" required counter={{ value: pitch.length, max: 100 }} hint="Make it obvious in one glance. Pretend it's on a sticky note.">
+          <input id="pp" required maxLength={100} className="input" value={pitch} onChange={(e) => setPitch(e.target.value)} placeholder="Stripe for indie game devs" />
+        </Field>
+        <ImageUpload label="Logo or screenshot" value={logo} onChange={setLogo} userId={userId} hint="Square works best. Optional, but cards with images get more taps." />
+      </FormSection>
+
+      <FormSection step={2} title="Where's it at?">
+        <fieldset>
+          <legend className="sr-only">Stage</legend>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {STAGES.map((st) => {
+              const on = stage === st.value;
+              return (
+                <label key={st.value}
+                  className={`flex cursor-pointer flex-col items-center gap-1 rounded-2xl px-2 py-4 text-center ring-1 ring-inset transition active:scale-[.98] ${
+                    on ? "bg-violet-50 ring-2 ring-brand dark:bg-violet-950/40 dark:ring-violet-400" : "bg-zinc-50 ring-zinc-200 hover:ring-zinc-300 dark:bg-zinc-900/60 dark:ring-zinc-800"
+                  }`}>
+                  <input type="radio" name="stage" value={st.value} checked={on} onChange={() => setStage(st.value)} className="sr-only" />
+                  <span aria-hidden className={`text-2xl transition ${on ? "scale-110" : ""}`}>{STAGE_META[st.value].icon}</span>
+                  <span className="font-bold">{st.label}</span>
+                  <span className="text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">{STAGE_META[st.value].description}</span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+      </FormSection>
+
+      <FormSection step={3} title="Who do you need?" description="This decides who sees a “Count me in” button.">
+        <ChoiceCards
+          label="Open to collaborators?" columns={3} value={openness} onChange={setOpenness}
+          options={[
+            { value: "specific", label: "Specific roles", icon: "🎯", description: "List the skills you need" },
+            { value: "anyone", label: "Anyone", icon: "🙌", description: "Curious people welcome" },
+            { value: "closed", label: "Just showing", icon: "👀", description: "Not looking right now" },
+          ]}
+        />
+
+        {openness === "specific" && (
+          <div className="space-y-3">
+            {drafts.map((d, i) => (
+              <div key={d.id ?? `new-${i}`} className="relative rounded-3xl bg-zinc-50 p-4 ring-1 ring-inset ring-zinc-200 dark:bg-zinc-950/60 dark:ring-zinc-800">
+                <div className="mb-4 flex items-center justify-between">
+                  <span className="inline-flex items-center gap-2 font-display font-extrabold">
+                    <span aria-hidden className="flex h-6 w-6 items-center justify-center rounded-lg bg-lime-300 text-xs text-zinc-900">{i + 1}</span>
+                    {d.specialty.trim() ? `Need: ${d.specialty}` : "Open role"}
+                  </span>
+                  {drafts.length > 1 && (
+                    <button type="button" className="btn-ghost btn-sm text-zinc-500" onClick={() => setDrafts((x) => x.filter((_, j) => j !== i))} aria-label={`Remove role ${i + 1}`}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-4">
+                  <Field label="Specialty" htmlFor={`sp${i}`} required>
+                    <input id={`sp${i}`} list="skill-list" className="input" value={d.specialty} onChange={(e) => setDraft(i, { specialty: e.target.value })} placeholder="Design/UI/UX" />
+                  </Field>
+                  <div className="-mt-2 flex flex-wrap gap-1.5">
+                    {SKILLS.filter((x) => x !== "Other").slice(0, 8).map((sk) => (
+                      <button key={sk} type="button" onClick={() => setDraft(i, { specialty: sk })}
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold transition ${d.specialty === sk ? "bg-brand text-white" : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:ring-zinc-300 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800"}`}>
+                        {sk}
+                      </button>
+                    ))}
+                  </div>
+                  <Field label="What's the job?" htmlFor={`sd${i}`} optional counter={{ value: d.description.length, max: 200 }}>
+                    <input id={`sd${i}`} className="input" maxLength={200} value={d.description} onChange={(e) => setDraft(i, { description: e.target.value })} placeholder="Landing page and onboarding flow" />
+                  </Field>
+                  <Field label="Time commitment" htmlFor={`sc${i}`} optional>
+                    <input id={`sc${i}`} className="input" value={d.commitment} onChange={(e) => setDraft(i, { commitment: e.target.value })} placeholder="About 5 hrs a week" />
+                  </Field>
+                  <fieldset>
+                    <legend className="label">What&apos;s in it for them?</legend>
+                    <div className="flex flex-wrap gap-2">
+                      {COMPENSATION.map((c) => {
+                        const on = d.compensation === c.value;
+                        return (
+                          <button key={c.value} type="button" aria-pressed={on} onClick={() => setDraft(i, { compensation: c.value as Compensation })}
+                            className={`min-h-[40px] rounded-full px-4 text-sm font-bold transition active:scale-95 ${on ? `${COMP_STYLE[c.value as Compensation]} ring-2 ring-zinc-900 dark:ring-white` : "bg-white text-zinc-600 ring-1 ring-inset ring-zinc-200 hover:ring-zinc-300 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800"}`}>
+                            {c.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                  {d.id && (
+                    <Segmented
+                      label="Status" value={d.status} onChange={(v) => setDraft(i, { status: v })}
+                      options={[{ value: "open", label: "Open" }, { value: "filled", label: "Filled" }, { value: "closed", label: "Closed" }]}
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
+            <datalist id="skill-list">{SKILLS.map((sk) => <option key={sk} value={sk} />)}</datalist>
+            <button type="button" onClick={() => setDrafts((x) => [...x, emptySlot()])}
+              className="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-zinc-300 text-sm font-bold text-zinc-600 transition hover:border-brand hover:text-brand dark:border-zinc-700 dark:text-zinc-400">
+              <span aria-hidden className="text-lg">＋</span> Add another role
             </button>
-          ))}
-        </div>
-      </fieldset>
+          </div>
+        )}
+        {openness === "anyone" && (
+          <Field label="A note for helpers" htmlFor="gn" optional counter={{ value: note.length, max: 200 }}>
+            <input id="gn" className="input" maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Happy to have anyone curious help test" />
+          </Field>
+        )}
+      </FormSection>
 
-      <fieldset className="space-y-3">
-        <legend className="label">Are you open to collaborators?</legend>
-        {([
-          ["specific", "Open to specific roles", "List the skills you need"],
-          ["anyone", "Open to anyone", "General “come help”"],
-          ["closed", "Closed", "Just showing what I'm building"],
-        ] as const).map(([v, t, d]) => (
-          <label key={v} className={`card flex cursor-pointer items-start gap-3 p-3 ${openness === v ? "ring-2 ring-brand" : ""}`}>
-            <input type="radio" name="openness" className="mt-1 accent-violet-700" checked={openness === v} onChange={() => setOpenness(v)} />
-            <span><span className="block font-medium">{t}</span><span className="muted text-sm">{d}</span></span>
-          </label>
-        ))}
-      </fieldset>
+      <FormSection step={4} title="The details" description="Optional, for people who tap through to your page.">
+        <Field label="Description" htmlFor="pd" optional>
+          <textarea id="pd" rows={4} className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="The problem, who it's for, and what's working so far." />
+        </Field>
+        <Field label="Link" htmlFor="pl" optional hint="Website, demo or repo.">
+          <input id="pl" type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" className="input" value={link} onChange={(e) => setLink(e.target.value)} placeholder="buildfast.com" />
+        </Field>
+        <TagPicker label="Tech stack" options={TECH} value={tech} onChange={setTech} />
+      </FormSection>
 
-      {openness === "specific" && (
-        <div className="space-y-3">
-          {drafts.map((d, i) => (
-            <div key={d.id ?? i} className="card space-y-3 p-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">Open slot {i + 1}</span>
-                <button type="button" className="btn-ghost text-xs" onClick={() => setDrafts((x) => x.filter((_, j) => j !== i))}>Remove</button>
-              </div>
-              <div>
-                <label className="label" htmlFor={`sp${i}`}>Specialty</label>
-                <input id={`sp${i}`} list="skill-list" className="input" value={d.specialty} onChange={(e) => setDraft(i, { specialty: e.target.value })} placeholder="Design/UI/UX" />
-              </div>
-              <input aria-label="What's needed" className="input" maxLength={200} value={d.description} onChange={(e) => setDraft(i, { description: e.target.value })} placeholder="What do you need? e.g. landing page + onboarding flow" />
-              <div className="grid grid-cols-2 gap-2">
-                <input aria-label="Commitment" className="input" value={d.commitment} onChange={(e) => setDraft(i, { commitment: e.target.value })} placeholder="~5 hrs/week" />
-                <select aria-label="Compensation" className="input" value={d.compensation} onChange={(e) => setDraft(i, { compensation: e.target.value as Compensation })}>
-                  {COMPENSATION.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                </select>
-              </div>
-              {d.id && (
-                <select aria-label="Slot status" className="input" value={d.status} onChange={(e) => setDraft(i, { status: e.target.value as Slot["status"] })}>
-                  <option value="open">Open</option><option value="filled">Filled</option><option value="closed">Closed</option>
-                </select>
-              )}
-            </div>
-          ))}
-          <datalist id="skill-list">{SKILLS.map((s) => <option key={s} value={s} />)}</datalist>
-          <button type="button" className="btn-secondary w-full" onClick={() => setDrafts((x) => [...x, { specialty: "", description: "", commitment: "", compensation: "tbd", status: "open" }])}>
-            + Add slot
-          </button>
-        </div>
-      )}
-      {openness === "anyone" && (
-        <div>
-          <label htmlFor="gn" className="label">Note (optional)</label>
-          <input id="gn" className="input" maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Happy to have anyone curious help test" />
+      {project && (
+        <div className="flex items-center justify-between gap-4 rounded-3xl p-4 ring-1 ring-inset ring-red-200 dark:ring-red-900/60">
+          <div>
+            <p className="font-bold text-red-700 dark:text-red-400">Delete project</p>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">Removes it from every event and deletes its project space.</p>
+          </div>
+          <button type="button" className="btn-danger btn-sm shrink-0" onClick={remove}>Delete</button>
         </div>
       )}
 
-      <details className="card p-3" open={!!project}>
-        <summary className="cursor-pointer text-sm font-semibold">More details (optional)</summary>
-        <div className="mt-3 space-y-4">
-          <div>
-            <label htmlFor="pd" className="label">Description</label>
-            <textarea id="pd" rows={4} className="input" value={description} onChange={(e) => setDescription(e.target.value)} />
-          </div>
-          <div>
-            <label htmlFor="pl" className="label">Link (website, demo, repo)</label>
-            <input id="pl" type="text" inputMode="url" autoCapitalize="none" autoCorrect="off" className="input" value={link} onChange={(e) => setLink(e.target.value)} placeholder="buildfast.com" />
-          </div>
-          <ImageUpload label="Logo or screenshot" value={logo} onChange={setLogo} userId={userId} />
-          <TagPicker label="Tech stack" options={TECH} value={tech} onChange={setTech} />
-        </div>
-      </details>
-
-      <button className="btn-primary w-full" disabled={busy || !name.trim() || !pitch.trim()}>
-        {busy ? "Saving…" : eventCode ? "Post to event" : project ? "Save changes" : "Create project"}
-      </button>
-      {project && <button type="button" className="btn-danger w-full" onClick={remove}>Delete project</button>}
+      <StickyActions>
+        <p className="hidden min-w-0 flex-1 truncate text-sm text-zinc-500 sm:block dark:text-zinc-400">
+          {eventCode ? `Goes live on event ${eventCode} as soon as you post.` : project ? "Changes show up on every board right away." : "You can bring it to any event with one tap."}
+        </p>
+        <button className="btn-primary w-full sm:w-auto sm:min-w-[200px]" disabled={busy || !name.trim() || !pitch.trim()}>
+          {busy ? "Saving…" : eventCode ? "Post to the board" : project ? "Save changes" : "Create project"}
+        </button>
+      </StickyActions>
     </form>
   );
 }

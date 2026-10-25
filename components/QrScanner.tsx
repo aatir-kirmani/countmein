@@ -114,7 +114,7 @@ export function QrScanner({ onClose }: { onClose?: () => void }) {
 
   return (
     <div className="relative mx-auto w-full max-w-md">
-      <div className="relative aspect-square overflow-hidden rounded-3xl bg-black">
+      <div className="relative aspect-square overflow-hidden rounded-[2rem] bg-black shadow-[0_24px_60px_-24px_rgba(109,40,217,.6)] ring-4 ring-white dark:ring-zinc-900">
         <video ref={video} className="h-full w-full object-cover" playsInline muted aria-label="Camera preview" />
         <canvas ref={canvas} className="hidden" />
         {!error && (

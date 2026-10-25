@@ -1,8 +1,9 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Empty } from "@/components/ui/Empty";
-import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { PageHeader } from "@/components/ui/Form";
+import { EmptyState, SectionTitle, TabBar } from "./ui";
 import { REQUEST_SELECT, RequestCard, type FullRequest } from "./RequestCard";
 
 export function InboxView({ userId }: { userId: string }) {
@@ -51,26 +52,45 @@ export function InboxView({ userId }: { userId: string }) {
 
   const onChanged = (id: string, status: FullRequest["status"]) => setAll((rs) => rs?.map((r) => (r.id === id ? { ...r, status } : r)) ?? rs);
 
+  const needs = list.filter((r) => r.status === "pending" || r.status === "interested");
+  const rest = list.filter((r) => !(r.status === "pending" || r.status === "interested"));
+
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-extrabold tracking-tight">Inbox</h1>
-      <div role="tablist" className="grid grid-cols-2 rounded-xl bg-zinc-200 p-1 dark:bg-zinc-800">
-        {(["received", "sent"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-            className={cn("min-h-[40px] rounded-lg text-sm font-semibold capitalize", tab === t ? "bg-white shadow dark:bg-zinc-950" : "muted")}>
-            {t}{t === "received" && newCount > 0 ? ` (${newCount})` : ""}
-          </button>
-        ))}
-      </div>
+    <div className="space-y-5">
+      <PageHeader eyebrow="Your matches" title="Inbox" description="Requests, invites and matches across every event, live." />
+      <TabBar
+        label="Inbox"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { value: "received", label: "Received", count: all ? (newCount || null) : null },
+          { value: "sent", label: "Sent", count: all ? (sent.length || null) : null },
+        ]}
+      />
       {all === null ? (
-        <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-28" />)}</div>
+        <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-36 rounded-3xl" />)}</div>
       ) : list.length === 0 ? (
-        <Empty
-          title={tab === "received" ? "Nothing received yet" : "You haven't sent anything yet"}
-          body={tab === "received" ? "Requests to your projects and invites to you show up here in real time." : "Find a project at an event and tap “Count me in”."}
+        <EmptyState
+          emoji={tab === "received" ? "📭" : "✋"}
+          title={tab === "received" ? "Quiet in here, for now" : "You haven't counted yourself in yet"}
+          body={tab === "received" ? "Requests to your projects and invites to you land here in real time." : "Find a project at an event and tap “Count me in”."}
+          action={<Link href="/" className="btn-secondary">Find an event</Link>}
         />
       ) : (
-        <div className="space-y-3">{list.map((r) => <RequestCard key={r.id} r={r} viewerId={userId} onChanged={onChanged} />)}</div>
+        <div key={tab} className="animate-rise space-y-6">
+          {needs.length > 0 && (
+            <section>
+              <SectionTitle>{tab === "received" ? "Waiting on you" : "In progress"}</SectionTitle>
+              <div className="space-y-3">{needs.map((r) => <RequestCard key={r.id} r={r} viewerId={userId} onChanged={onChanged} />)}</div>
+            </section>
+          )}
+          {rest.length > 0 && (
+            <section>
+              <SectionTitle>Earlier</SectionTitle>
+              <div className="space-y-3">{rest.map((r) => <RequestCard key={r.id} r={r} viewerId={userId} onChanged={onChanged} />)}</div>
+            </section>
+          )}
+        </div>
       )}
     </div>
   );

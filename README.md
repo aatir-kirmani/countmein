@@ -2,7 +2,7 @@
 
 Event companion app for indie hacker meetups: check in, post what you're building, and team up with people in the room.
 
-Stack: Next.js 15 (App Router) · TypeScript · Tailwind · Supabase (Postgres, Auth, Realtime, Storage, RLS) · Resend · Stripe · Vercel.
+Stack: Next.js 15 (App Router) · TypeScript · Tailwind · Supabase (Postgres, Auth, Realtime, Storage, RLS) · Resend · Creem · Vercel.
 
 ## 1. Supabase
 
@@ -37,7 +37,9 @@ Copy `.env.example` to `.env.local` and fill it in:
 | `NEXT_PUBLIC_SITE_URL` | Your deployed URL, used for QR codes and emails |
 | `RESEND_API_KEY`, `EMAIL_FROM` | https://resend.com. Emails are skipped when unset. |
 | `CRON_SECRET` | Any long random string. Vercel Cron sends it automatically. |
-| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Only needed for paid tickets |
+| `CREEM_API_KEY`, `CREEM_WEBHOOK_SECRET` | Only needed for paid tickets (Creem dashboard) |
+| `CREEM_TEST_MODE` | `true` to use Creem's test API. Automatic for keys starting with `creem_test_`. |
+| `NEXT_PUBLIC_PAYMENTS_ENABLED` | `true` shows the ticket price field to organizers |
 
 ## 3. Run locally
 
@@ -56,11 +58,16 @@ npx vercel --prod
 
 `vercel.json` registers a daily cron at `/api/cron` (03:00 UTC; Vercel Hobby allows daily crons only, Pro can switch to hourly). Each run expires requests 48 hours after an event ends, marks finished events as ended, and sends recap emails. Recaps are only sent (and events only marked as recapped) once `RESEND_API_KEY` is set, so nothing is lost if you add email later. Organizers can also send a recap any time from the event dashboard.
 
-## 5. Stripe (paid tickets)
+## 5. Creem (paid tickets)
 
-1. Set `STRIPE_SECRET_KEY`.
-2. In the Stripe dashboard, add a webhook endpoint at `https://<your-domain>/api/stripe/webhook` for the `checkout.session.completed` event, then set `STRIPE_WEBHOOK_SECRET`.
-3. Set a ticket price on the event. Attendees pay before they can check in.
+Creem is the merchant of record, so it handles tax and receipts.
+
+1. In the Creem dashboard, open **Developers** and copy your API key into `CREEM_API_KEY`. Use a test key (`creem_test_...`) first; the app switches to `https://test-api.creem.io` automatically.
+2. Add a webhook endpoint at `https://<your-domain>/api/creem/webhook` subscribed to `checkout.completed` and `refund.created`, then copy its signing secret into `CREEM_WEBHOOK_SECRET`.
+3. Set `NEXT_PUBLIC_PAYMENTS_ENABLED=true` and redeploy so organizers can set a ticket price.
+4. Apply `supabase/migrations/0004_creem.sql`.
+
+How it works: the first ticket purchase for an event creates a one-time Creem product at the event's price (a new one is created if the price changes later). `POST /api/tickets/checkout` creates a checkout with the ticket id as `request_id` and redirects the attendee. When Creem calls the webhook, the ticket is marked paid and the attendee can check in. Refunds mark the ticket refunded.
 
 ## Security model
 

@@ -5,10 +5,11 @@ import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import type { JoinRequest, Profile } from "@/lib/types";
 import { DECLINE_REASONS, LINK_FIELDS } from "@/lib/constants";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { StatusBadge } from "@/components/ui/Badges";
 import { notify } from "./notify";
+import { Icon } from "./ui";
 
 export type FullRequest = JoinRequest & {
   requester: Pick<Profile, "id" | "name" | "username" | "avatar_url" | "bio" | "skills" | "links"> | null;
@@ -58,90 +59,123 @@ export function RequestCard({ r, viewerId, onChanged }: { r: FullRequest; viewer
     setDeclining(false);
     if (error) { onChanged(r.id, prev); return toast(error.message, { kind: "error" }); }
     if (action !== "withdraw") notify(r.id);
-    if (action === "accept") toast("🎉 You're connected! Contact details unlocked.", { kind: "success" });
+    if (action === "accept") toast("🎉 It's a match! Contact details unlocked.", { kind: "success" });
     if (action === "interested") toast("They'll see your location note from the event page. Add one there if you haven't (e.g. “table 4, blue shirt”).");
     refreshPending();
   };
 
   const showPerson = isOwner ? r.requester : other;
 
+  const context = r.direction === "invite" ? (isOwner ? "You invited them to" : "Invited you to") : (isOwner ? "Wants to join" : "You asked to join");
+  const needsMe = canRespond;
+
   return (
-    <article className="card space-y-3 p-4">
+    <article className={cn("rounded-3xl bg-white p-4 ring-1 transition dark:bg-zinc-900 sm:p-5", needsMe ? "ring-2 ring-brand/70 dark:ring-violet-400/70" : "ring-zinc-200/80 dark:ring-zinc-800")}>
       <div className="flex items-start gap-3">
         <Avatar src={showPerson?.avatar_url} name={showPerson?.name ?? ""} size={48} />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            {showPerson ? <Link href={`/u/${showPerson.username}`} className="font-semibold hover:underline">{showPerson.name || showPerson.username}</Link> : <span className="font-semibold">Unknown</span>}
+          <div className="flex items-start justify-between gap-2">
+            {showPerson ? <Link href={`/u/${showPerson.username}`} className="truncate font-display text-lg font-extrabold leading-tight hover:underline">{showPerson.name || showPerson.username}</Link> : <span className="font-bold">Unknown</span>}
             <StatusBadge status={r.status} />
           </div>
-          <p className="muted text-xs">
-            {r.direction === "invite" ? (isOwner ? "You invited them to " : "Invited you to ") : (isOwner ? "Wants to join " : "You asked to join ")}
-            <Link href={`/p/${r.project_id}`} className="font-medium underline">{r.project?.name}</Link>
-            {r.slot ? ` as ${r.slot.specialty}` : ""} · {timeAgo(r.created_at)}
+          <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-400">
+            {context} <Link href={`/p/${r.project_id}`} className="font-bold text-zinc-900 hover:underline dark:text-white">{r.project?.name}</Link>
+            {r.slot ? <> as <b className="text-zinc-900 dark:text-white">{r.slot.specialty}</b></> : ""}
           </p>
+          <p className="mt-0.5 text-xs text-zinc-400">{timeAgo(r.created_at)}</p>
         </div>
       </div>
 
-      {isOwner && r.requester && (
-        <div className="space-y-1 text-sm">
-          {r.requester.bio && <p>{r.requester.bio}</p>}
+      {isOwner && r.requester && (r.requester.bio || r.requester.skills.length > 0) && (
+        <div className="mt-3 space-y-2">
+          {r.requester.bio && <p className="text-sm text-zinc-700 dark:text-zinc-300">{r.requester.bio}</p>}
           {r.requester.skills.length > 0 && (
-            <div className="flex flex-wrap gap-1">{r.requester.skills.map((s) => <span key={s} className="chip bg-zinc-100 dark:bg-zinc-800">{s}</span>)}</div>
+            <div className="flex flex-wrap gap-1.5">{r.requester.skills.map((s) => <span key={s} className={cn("chip", r.slot && s.toLowerCase() === r.slot.specialty.toLowerCase() ? "bg-brand text-white" : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300")}>{s}</span>)}</div>
           )}
           <LinksRow links={r.requester.links} />
         </div>
       )}
-      {r.message && <blockquote className="rounded-xl bg-zinc-100 p-3 text-sm dark:bg-zinc-800">“{r.message}”</blockquote>}
-      {r.decline_reason && r.status === "declined" && <p className="muted text-sm">Reason: {r.decline_reason}</p>}
+      {r.message && (
+        <blockquote className="relative mt-3 rounded-2xl rounded-tl-md bg-zinc-100 px-4 py-3 text-[15px] leading-relaxed text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+          {r.message}
+        </blockquote>
+      )}
+      {r.decline_reason && r.status === "declined" && <p className="mt-3 text-sm text-zinc-500">Reason: {r.decline_reason}</p>}
 
       {r.status === "interested" && isCand && (
-        <p className="rounded-xl bg-sky-50 p-3 text-sm dark:bg-sky-950">👋 The founder wants to talk first. {meetNote ? <>Find them at: <b>{meetNote}</b></> : "Look for them in the room."}</p>
+        <div className="mt-3 flex items-start gap-3 rounded-2xl bg-sky-50 p-3.5 text-sm text-sky-950 dark:bg-sky-400/10 dark:text-sky-100">
+          <span aria-hidden className="text-xl">👋</span>
+          <p><b>They want to talk first.</b> {meetNote ? <>Find them at <b className="underline decoration-sky-400 decoration-2 underline-offset-2">{meetNote}</b>.</> : "Look for them in the room."}</p>
+        </div>
       )}
 
       {r.status === "accepted" && (
-        <div className="space-y-2 rounded-xl bg-emerald-50 p-3 text-sm dark:bg-emerald-950">
-          <p className="font-semibold">Contact details</p>
-          {contact ? (
-            <>
-              {contact.contact_email && <p>✉ <a className="underline" href={`mailto:${contact.contact_email}`}>{contact.contact_email}</a></p>}
-              {contact.contact_phone && <p>☎ <a className="underline" href={`tel:${contact.contact_phone}`}>{contact.contact_phone}</a></p>}
-              {!contact.contact_email && !contact.contact_phone && <p className="muted">No contact details shared.</p>}
-            </>
-          ) : <p className="muted">Loading…</p>}
-          <Link href={`/space/${r.project_id}`} className="btn-primary w-full">Open project space</Link>
+        <div className="mt-3 rounded-2xl bg-lime-200 p-4 text-zinc-900 dark:bg-lime-300">
+          <p className="font-display text-lg font-extrabold">🎉 It&apos;s a match</p>
+          <div className="mt-2 space-y-1.5">
+            {contact ? (
+              <>
+                {contact.contact_email && <ContactRow icon="mail" value={contact.contact_email} href={`mailto:${contact.contact_email}`} />}
+                {contact.contact_phone && <ContactRow icon="phone" value={contact.contact_phone} href={`tel:${contact.contact_phone}`} />}
+                {!contact.contact_email && !contact.contact_phone && <p className="text-sm text-zinc-700">No contact details shared yet. Say hi in the project space.</p>}
+              </>
+            ) : <div className="h-10 animate-pulse rounded-xl bg-white/50" />}
+          </div>
+          <Link href={`/space/${r.project_id}`} className="btn mt-3 w-full bg-zinc-900 text-white shadow-[0_4px_0_0_#000] hover:-translate-y-px active:shadow-none">Open project space <Icon name="arrow" className="h-4 w-4" /></Link>
         </div>
       )}
 
       {canRespond && !declining && (
-        <div className="space-y-2">
+        <div className="mt-4 space-y-3">
           {isOwner && r.slot_id && r.slot?.status === "open" && (
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" className="h-5 w-5 accent-violet-700" checked={fill} onChange={(e) => setFill(e.target.checked)} /> Mark {r.slot.specialty} slot as filled
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium">
+              <input type="checkbox" className="h-5 w-5 rounded accent-violet-700" checked={fill} onChange={(e) => setFill(e.target.checked)} />
+              Mark the {r.slot.specialty} role as filled
             </label>
           )}
-          <div className="grid grid-cols-3 gap-2">
-            <button className="btn-primary" disabled={busy} onClick={() => act("accept")}>Accept</button>
-            {isOwner && r.status === "pending" ? (
-              <button className="btn-secondary" disabled={busy} onClick={() => act("interested")}>Let&apos;s talk</button>
-            ) : <span />}
-            <button className="btn-secondary" disabled={busy} onClick={() => (isOwner ? setDeclining(true) : act("decline"))}>Decline</button>
+          <div className="flex gap-2">
+            <button className="btn-accent flex-1" disabled={busy} onClick={() => act("accept")}>{isOwner ? "Accept" : "Join"}</button>
+            {isOwner && r.status === "pending" && (
+              <button className="btn-secondary flex-1" disabled={busy} onClick={() => act("interested")}>Let&apos;s talk</button>
+            )}
+            <button className="btn-ghost px-4 text-zinc-500" disabled={busy} onClick={() => (isOwner ? setDeclining(true) : act("decline"))} aria-label="Decline">
+              {isOwner ? "Pass" : "Decline"}
+            </button>
           </div>
         </div>
       )}
       {declining && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Reason (optional)</p>
+        <div className="mt-4 space-y-3 rounded-2xl bg-zinc-50 p-3.5 dark:bg-zinc-800/50">
+          <p className="text-sm font-bold">Want to tell them why? <span className="font-medium text-zinc-500">Optional, kept short and kind.</span></p>
           <div className="flex flex-wrap gap-2">
-            {DECLINE_REASONS.map((d) => <button key={d} className="btn-secondary text-xs" disabled={busy} onClick={() => act("decline", d)}>{d}</button>)}
+            {DECLINE_REASONS.map((d) => (
+              <button key={d} className="min-h-[38px] rounded-full bg-white px-3.5 text-sm font-semibold ring-1 ring-zinc-200 transition hover:ring-zinc-400 dark:bg-zinc-900 dark:ring-zinc-700" disabled={busy} onClick={() => act("decline", d)}>{d}</button>
+            ))}
           </div>
           <div className="flex gap-2">
-            <button className="btn-ghost" onClick={() => setDeclining(false)}>Cancel</button>
-            <button className="btn-danger" disabled={busy} onClick={() => act("decline")}>Decline without reason</button>
+            <button className="btn-ghost btn-sm" onClick={() => setDeclining(false)}>Cancel</button>
+            <button className="btn-secondary btn-sm ml-auto" disabled={busy} onClick={() => act("decline")}>Pass without a reason</button>
           </div>
         </div>
       )}
-      {canWithdraw && <button className="btn-ghost w-full text-sm" disabled={busy} onClick={() => act("withdraw")}>Withdraw</button>}
+      {canWithdraw && <button className="btn-ghost btn-sm mt-3 w-full text-zinc-500" disabled={busy} onClick={() => act("withdraw")}>Withdraw</button>}
     </article>
+  );
+}
+
+function ContactRow({ icon, value, href }: { icon: "mail" | "phone"; value: string; href: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+  };
+  return (
+    <div className="flex items-center gap-2 rounded-xl bg-white/70 p-1.5 pl-3">
+      <Icon name={icon} className="h-4 w-4 shrink-0" />
+      <a href={href} className="min-w-0 flex-1 truncate text-sm font-bold underline-offset-2 hover:underline">{value}</a>
+      <button onClick={copy} className="flex h-8 items-center gap-1 rounded-lg bg-zinc-900 px-2.5 text-xs font-bold text-white" aria-label={`Copy ${value}`}>
+        <Icon name={copied ? "check" : "copy"} className="h-3.5 w-3.5" />{copied ? "Copied" : "Copy"}
+      </button>
+    </div>
   );
 }
 
@@ -149,11 +183,16 @@ export function LinksRow({ links }: { links: Profile["links"] }) {
   const entries = LINK_FIELDS.filter((f) => links?.[f.key]);
   if (!entries.length) return null;
   return (
-    <div className="flex flex-wrap gap-3 text-sm">
+    <div className="flex flex-wrap gap-1.5 text-sm">
       {entries.map((f) => {
         const v = links[f.key]!;
         const href = v.startsWith("http") ? v : `https://${v}`;
-        return <a key={f.key} href={href} target="_blank" rel="noopener noreferrer" className="text-brand underline dark:text-violet-400">{f.label}</a>;
+        return (
+          <a key={f.key} href={href} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-800 transition hover:bg-violet-100 dark:bg-violet-400/10 dark:text-violet-200">
+            {f.label} <Icon name="external" className="h-3 w-3" />
+          </a>
+        );
       })}
     </div>
   );

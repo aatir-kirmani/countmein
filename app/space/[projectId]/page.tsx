@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getUser } from "@/lib/supabase/server";
 import { SpaceClient } from "@/components/c/SpaceClient";
-import { Empty } from "@/components/ui/Empty";
 
 export default async function SpacePage({ params }: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await params;
@@ -13,11 +12,14 @@ export default async function SpacePage({ params }: { params: Promise<{ projectI
 
   if (!project || !member || !user) {
     return (
-      <Empty
-        title="This Project Space is for members only"
-        body="Ask the founder to accept your request, or request to join from the project page."
-        action={<Link href={project ? `/p/${projectId}` : "/"} className="btn-primary">{project ? "View project" : "Go home"}</Link>}
-      />
+      <div className="mx-auto max-w-md pt-10 text-center">
+        <p className="text-5xl" aria-hidden>🔐</p>
+        <h1 className="mt-4 text-3xl font-extrabold">Members only, sorry!</h1>
+        <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+          This is the team&apos;s private space. Ask the founder to accept your request, or tap Count me in on the project page.
+        </p>
+        <Link href={project ? `/p/${projectId}` : "/"} className="btn-primary mt-6">{project ? "View the project" : "Go home"}</Link>
+      </div>
     );
   }
   return <SpaceClient project={project} userId={user.id} />;

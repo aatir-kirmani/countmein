@@ -22,5 +22,5 @@ export function BlockButton({ targetId, blocked: initial }: { targetId: string; 
     if (!blocked && window.location.pathname.startsWith("/u/")) router.push("/me");
     else router.refresh();
   };
-  return <button className="btn-ghost text-sm" onClick={toggle}>{blocked ? "Unblock" : "Block"}</button>;
+  return <button className="btn-secondary btn-sm" onClick={toggle}>{blocked ? "Unblock" : "Block"}</button>;
 }

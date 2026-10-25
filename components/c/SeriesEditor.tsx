@@ -4,6 +4,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import { ImageUpload } from "@/components/ui/ImageUpload";
+import { Field } from "@/components/ui/Form";
 
 type Series = { id: string; name: string; slug: string; description: string | null; city: string | null; cover_url: string | null };
 
@@ -23,20 +24,37 @@ export function SeriesEditor({ series, userId }: { series: Series; userId: strin
       .eq("id", series.id);
     setBusy(false);
     if (error) toast(error.message, { kind: "error" });
-    else { toast("Series updated"); setOpen(false); }
+    else { toast("Series updated", { kind: "success" }); setOpen(false); }
   };
 
   return (
-    <li className="card p-3">
-      <div className="flex items-center justify-between gap-2">
-        <Link href={`/series/${series.slug}`} className="font-medium hover:underline">{f.name}</Link>
-        <button className="btn-ghost text-sm" onClick={() => setOpen((v) => !v)}>{open ? "Close" : "Edit"}</button>
+    <li className="card overflow-hidden">
+      <div className="flex items-center gap-3 p-3">
+        {f.cover_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={f.cover_url} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+        ) : (
+          <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-lime-300 font-display text-lg font-extrabold text-white">{f.name[0]}</span>
+        )}
+        <div className="min-w-0 flex-1">
+          <Link href={`/series/${series.slug}`} className="block truncate font-bold hover:text-brand">{f.name}</Link>
+          <p className="truncate text-xs text-zinc-500 dark:text-zinc-400">{f.city || "No city yet"} · /series/{series.slug}</p>
+        </div>
+        <button className="btn-ghost btn-sm" aria-expanded={open} onClick={() => setOpen((v) => !v)}>{open ? "Close" : "Edit"}</button>
       </div>
       {open && (
-        <form onSubmit={save} className="mt-3 space-y-3">
-          <input className="input" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} aria-label="Series name" />
-          <input className="input" placeholder="City" value={f.city ?? ""} onChange={(e) => setF({ ...f, city: e.target.value })} aria-label="City" />
-          <textarea className="input" rows={3} placeholder="What is this community about?" value={f.description ?? ""} onChange={(e) => setF({ ...f, description: e.target.value })} aria-label="Description" />
+        <form onSubmit={save} className="space-y-4 border-t border-zinc-100 p-4 dark:border-zinc-800">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Series name" htmlFor={`s-name-${series.id}`} required>
+              <input id={`s-name-${series.id}`} className="input" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+            </Field>
+            <Field label="City" htmlFor={`s-city-${series.id}`} optional>
+              <input id={`s-city-${series.id}`} className="input" placeholder="Dubai" value={f.city ?? ""} onChange={(e) => setF({ ...f, city: e.target.value })} />
+            </Field>
+          </div>
+          <Field label="About this community" htmlFor={`s-desc-${series.id}`} optional counter={{ value: (f.description ?? "").length, max: 500 }}>
+            <textarea id={`s-desc-${series.id}`} className="input" rows={3} maxLength={500} placeholder="Monthly meetup for people shipping side projects in Dubai." value={f.description ?? ""} onChange={(e) => setF({ ...f, description: e.target.value })} />
+          </Field>
           <ImageUpload label="Cover image" userId={userId} value={f.cover_url} onChange={(url) => setF({ ...f, cover_url: url })} />
           <button className="btn-primary w-full" disabled={busy || !f.name.trim()}>{busy ? "Saving…" : "Save series"}</button>
         </form>

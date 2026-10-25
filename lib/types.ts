@@ -39,6 +39,8 @@ export interface EventRow {
   capacity: number | null;
   status: "upcoming" | "live" | "ended";
   ticket_price_cents: number;
+  creem_product_id?: string | null;
+  creem_product_price_cents?: number | null;
   currency: string;
   recap_sent: boolean;
   created_at: string;

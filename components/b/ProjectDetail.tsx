@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import type { JoinRequest, Profile, ProjectWithRelations, Slot } from "@/lib/types";
-import { compLabel, openSlots } from "@/lib/utils";
+import { cn, compLabel, openSlots } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { StageBadge, StatusBadge } from "@/components/ui/Badges";
-import { Empty } from "@/components/ui/Empty";
+import { Field } from "@/components/ui/Form";
+import { EmptyState, Icon, ProjectLogo, SectionTitle } from "./ui";
 import { ReportButton } from "@/components/ReportButton";
 import { Sheet } from "./Sheet";
 import { LinksRow, REQUEST_SELECT, RequestCard, type FullRequest } from "./RequestCard";
@@ -76,130 +77,172 @@ export function ProjectDetail({ project, members, me, eventCtx, backCode }: {
 
   const pendingCount = (requests ?? []).filter((r) => r.status === "pending" && r.direction === "request").length;
 
-  return (
-    <div className="space-y-4">
-      {backCode && <Link href={`/e/${backCode}`} className="btn-ghost -ml-2 text-sm">← Back to event</Link>}
+  const sendable = open.length > 0 || project.openness === "anyone";
 
-      <section className="card space-y-3 p-4">
-        <div className="flex gap-3">
-          {project.logo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={project.logo_url} alt="" className="h-16 w-16 rounded-2xl object-cover" />
-          ) : (
-            <span aria-hidden className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-100 text-2xl font-bold dark:bg-zinc-800">{project.name[0]}</span>
+  return (
+    <div className="space-y-5">
+      {backCode && (
+        <Link href={`/e/${backCode}`} className="inline-flex items-center gap-1.5 text-sm font-bold text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
+          <Icon name="back" className="h-4 w-4" /> Back to the board
+        </Link>
+      )}
+
+      {/* Hero */}
+      <section className="relative overflow-hidden rounded-[2rem] bg-white p-5 ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:ring-zinc-800 sm:p-7">
+        <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gradient-to-br from-violet-300/40 to-lime-200/40 blur-3xl dark:from-violet-700/30 dark:to-lime-500/10" />
+        <div className="relative">
+          <div className="flex items-start gap-4">
+            <ProjectLogo name={project.name} url={project.logo_url} size={76} className="rounded-3xl" />
+            <div className="min-w-0 flex-1 pt-1">
+              <StageBadge stage={project.stage} />
+              <h1 className="mt-2 text-3xl font-extrabold leading-[1.05] sm:text-4xl">{project.name}</h1>
+            </div>
+          </div>
+          <p className="mt-4 font-display text-xl font-semibold leading-snug text-zinc-800 dark:text-zinc-200">{project.pitch}</p>
+          {project.description && <p className="mt-3 whitespace-pre-line text-[15px] leading-relaxed text-zinc-600 dark:text-zinc-400">{project.description}</p>}
+          {(project.link || project.tech_stack.length > 0) && (
+            <div className="mt-4 flex flex-wrap items-center gap-1.5">
+              {project.link && (
+                <a href={project.link.startsWith("http") ? project.link : `https://${project.link}`} target="_blank" rel="noopener noreferrer"
+                  className="chip bg-zinc-900 py-1.5 text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900">
+                  <Icon name="link" className="h-3.5 w-3.5" /> {project.link.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                </a>
+              )}
+              {project.tech_stack.map((t) => <span key={t} className="chip bg-zinc-100 py-1.5 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{t}</span>)}
+            </div>
           )}
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-extrabold tracking-tight">{project.name}</h1><StageBadge stage={project.stage} /></div>
-            <p className="muted">{project.pitch}</p>
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            {isMember && <Link href={`/space/${project.id}`} className="btn-primary btn-sm">Open project space</Link>}
+            {isOwner && <Link href={`/me/projects/${project.id}/edit`} className="btn-secondary btn-sm">Edit project</Link>}
+            <ReportButton targetType="project" targetId={project.id} className="btn-ghost btn-sm ml-auto text-zinc-500" />
           </div>
         </div>
-        {project.description && <p className="whitespace-pre-line text-sm">{project.description}</p>}
-        {project.link && (
-          <a href={project.link.startsWith("http") ? project.link : `https://${project.link}`} target="_blank" rel="noopener noreferrer" className="text-sm text-brand underline dark:text-violet-400">{project.link}</a>
-        )}
-        {project.tech_stack.length > 0 && (
-          <div className="flex flex-wrap gap-1">{project.tech_stack.map((t) => <span key={t} className="chip bg-zinc-100 dark:bg-zinc-800">{t}</span>)}</div>
-        )}
-        <div className="flex flex-wrap gap-2 pt-1">
-          {isOwner && <Link href={`/me/projects/${project.id}/edit`} className="btn-secondary">Edit project</Link>}
-          {isMember && <Link href={`/space/${project.id}`} className="btn-primary">Open project space</Link>}
-          <ReportButton targetType="project" targetId={project.id} />
-        </div>
       </section>
+
+      {/* My status */}
+      {isMember && !isOwner && (
+        <div className="flex items-center gap-3 rounded-3xl bg-lime-200 p-4 text-zinc-900 dark:bg-lime-300">
+          <span aria-hidden className="text-2xl">🤝</span>
+          <p className="font-bold">You&apos;re on this team.</p>
+        </div>
+      )}
+      {openReq && (
+        <div className="flex items-center gap-3 rounded-3xl bg-white p-4 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
+          <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-lg dark:bg-amber-400/15">⏳</span>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold">{openReq.direction === "invite" ? "You've been invited" : openReq.status === "interested" ? "The founder wants to talk" : "Request sent"}</p>
+            <p className="text-xs text-zinc-500">{openReq.direction === "invite" ? "Reply from your inbox." : openReq.status === "interested" ? "Check your inbox for where to find them." : "They'll get a ping right away."}</p>
+          </div>
+          {openReq.direction === "request" ? <button className="btn-ghost btn-sm" onClick={withdraw}>Withdraw</button> : <Link href="/inbox" className="btn-primary btn-sm">Reply</Link>}
+        </div>
+      )}
+      {myReq && !openReq && myReq.status !== "withdrawn" && !isMember && (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">Your last request: <StatusBadge status={myReq.status} /></p>
+      )}
 
       {/* Openness */}
-      <section className="space-y-3">
-        {project.openness === "closed" && <p className="muted text-sm">Just showing what I&apos;m building. Not looking for collaborators right now.</p>}
+      {project.openness === "closed" && (
+        <div className="flex items-center gap-3 rounded-3xl bg-zinc-100 p-4 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+          <span aria-hidden className="text-xl">👀</span> Just showing what they&apos;re building. Not looking for collaborators right now.
+        </div>
+      )}
 
-        {project.openness === "anyone" && (
-          <div className="card space-y-3 p-4">
-            <p className="font-semibold">🙌 Open to anyone</p>
-            {project.general_note && <p className="text-sm">{project.general_note}</p>}
-            {canRequest && <button className="btn-primary h-12 w-full text-base" onClick={() => setSheetSlot(null)}>Count me in</button>}
-          </div>
-        )}
-
-        {project.openness === "specific" && (
-          <>
-            <h2 className="font-semibold">Open roles</h2>
-            {slots.length === 0 && <p className="muted text-sm">No roles listed.</p>}
-            {slots.length > 0 && open.length === 0 && !isOwner && <p className="muted text-sm">All roles are filled right now. Check back later.</p>}
-            {slots.map((s) => (
-              <div key={s.id} className="card space-y-2 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-semibold">{s.specialty}</p>
-                  <div className="flex gap-1">
-                    <span className="chip bg-zinc-100 dark:bg-zinc-800">{compLabel(s.compensation)}</span>
-                    {s.status !== "open" && <span className="chip bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">{s.status === "filled" ? "Filled" : "Closed"}</span>}
-                  </div>
-                </div>
-                {s.description && <p className="text-sm">{s.description}</p>}
-                {s.commitment && <p className="muted text-xs">Commitment: {s.commitment}</p>}
-                {isOwner ? (
-                  <div className="flex gap-2">
-                    {s.status === "open" ? (
-                      <>
-                        <button className="btn-secondary text-xs" onClick={() => setSlotStatus(s.id, "filled")}>Mark filled</button>
-                        <button className="btn-ghost text-xs" onClick={() => setSlotStatus(s.id, "closed")}>Close</button>
-                      </>
-                    ) : <button className="btn-secondary text-xs" onClick={() => setSlotStatus(s.id, "open")}>Reopen</button>}
-                  </div>
-                ) : canRequest && s.status === "open" ? (
-                  <button className="btn-primary w-full" onClick={() => setSheetSlot(s.id)}>Count me in</button>
-                ) : null}
-              </div>
-            ))}
-          </>
-        )}
-
-        {!me && project.openness !== "closed" && (
-          <Link className="btn-primary w-full" href={`/login?next=/p/${project.id}${backCode ? `?e=${backCode}` : ""}`}>Sign in to join</Link>
-        )}
-        {eventCtx?.ended && !isOwner && <p className="muted text-sm">This event has ended, so requests are closed.</p>}
-        {isMember && !isOwner && <p className="text-sm text-emerald-700 dark:text-emerald-400">✓ You&apos;re on this team.</p>}
-        {openReq && (
-          <div className="card flex items-center justify-between gap-2 p-4">
-            <span className="text-sm">Your request <StatusBadge status={openReq.status} /></span>
-            {openReq.direction === "request" ? <button className="btn-ghost text-sm" onClick={withdraw}>Withdraw</button> : <Link href="/inbox" className="btn-secondary text-sm">Respond</Link>}
-          </div>
-        )}
-        {myReq && !openReq && myReq.status !== "withdrawn" && !isMember && (
-          <p className="muted text-sm">Your last request: <StatusBadge status={myReq.status} /></p>
-        )}
-      </section>
-
-      {/* Founder */}
-      <section className="card space-y-2 p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Founder</h2>
-        <Link href={`/u/${project.owner.username}`} className="flex items-center gap-3">
-          <Avatar src={project.owner.avatar_url} name={project.owner.name} size={48} />
-          <span><span className="block font-semibold">{project.owner.name || project.owner.username}</span><span className="muted text-xs">@{project.owner.username}</span></span>
-        </Link>
-        {project.owner.bio && <p className="text-sm">{project.owner.bio}</p>}
-        {project.owner.skills?.length > 0 && <div className="flex flex-wrap gap-1">{project.owner.skills.map((s) => <span key={s} className="chip bg-zinc-100 dark:bg-zinc-800">{s}</span>)}</div>}
-        <LinksRow links={project.owner.links ?? {}} />
-      </section>
-
-      {members.length > 1 && (
-        <section className="card space-y-2 p-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">Team</h2>
-          <ul className="flex flex-wrap gap-3">
-            {members.map((m) => (
-              <li key={m.user_id}><Link href={`/u/${m.profile.username}`} className="flex items-center gap-2 text-sm"><Avatar src={m.profile.avatar_url} name={m.profile.name} size={28} />{m.profile.name} <span className="muted">· {m.role}</span></Link></li>
-            ))}
-          </ul>
+      {project.openness === "anyone" && (
+        <section className="relative overflow-hidden rounded-[2rem] bg-zinc-950 p-6 text-white dark:ring-1 dark:ring-zinc-800">
+          <div aria-hidden className="absolute -bottom-12 -right-8 text-[8rem] leading-none opacity-20">🙌</div>
+          <p className="eyebrow !text-lime-300">Open to anyone</p>
+          <h2 className="mt-1 text-2xl font-extrabold">Come build with us</h2>
+          {project.general_note && <p className="mt-2 max-w-md text-[15px] text-zinc-300">{project.general_note}</p>}
+          {canRequest && <button className="btn-accent relative mt-5 h-14 w-full text-lg" onClick={() => setSheetSlot(null)}>Count me in ✋</button>}
         </section>
       )}
 
+      {project.openness === "specific" && (
+        <section>
+          <SectionTitle action={<span className="text-xs font-semibold text-zinc-500">{open.length} open</span>}>Open roles</SectionTitle>
+          {slots.length === 0 && <p className="text-sm text-zinc-500">No roles listed.</p>}
+          {slots.length > 0 && open.length === 0 && !isOwner && (
+            <EmptyState emoji="🎯" title="All roles are filled" body="This team is complete for now. Check back later." className="py-8" />
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {slots.filter((s) => isOwner || s.status === "open").map((s) => (
+              <article key={s.id} className={cn("flex flex-col rounded-3xl p-5 ring-1", s.status === "open" ? "bg-white ring-zinc-200/80 dark:bg-zinc-900 dark:ring-zinc-800" : "bg-zinc-100 ring-transparent dark:bg-zinc-900/50")}>
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="font-display text-xl font-extrabold leading-tight">{s.specialty}</h3>
+                  <span className={cn("chip shrink-0", COMP_COLOR[s.compensation] ?? "bg-zinc-100 dark:bg-zinc-800")}>{compLabel(s.compensation)}</span>
+                </div>
+                {s.description && <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{s.description}</p>}
+                {s.commitment && <p className="mt-2 text-xs font-semibold text-zinc-500">⏱ {s.commitment}</p>}
+                {(isOwner || (canRequest && s.status === "open")) && <div className="mt-auto pt-4">
+                  {isOwner ? (
+                    <div className="flex items-center gap-2">
+                      {s.status !== "open" && <span className="chip bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{s.status === "filled" ? "Filled" : "Closed"}</span>}
+                      <div className="ml-auto flex gap-1.5">
+                        {s.status === "open" ? (
+                          <>
+                            <button className="btn-secondary btn-sm" onClick={() => setSlotStatus(s.id, "filled")}>Mark filled</button>
+                            <button className="btn-ghost btn-sm" onClick={() => setSlotStatus(s.id, "closed")}>Close</button>
+                          </>
+                        ) : <button className="btn-secondary btn-sm" onClick={() => setSlotStatus(s.id, "open")}>Reopen</button>}
+                      </div>
+                    </div>
+                  ) : (
+                    <button className="btn-primary w-full" onClick={() => setSheetSlot(s.id)}>Count me in</button>
+                  )}
+                </div>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!me && project.openness !== "closed" && sendable && (
+        <Link className="btn-primary h-14 w-full text-base" href={`/login?next=/p/${project.id}${backCode ? `?e=${backCode}` : ""}`}>Sign in to count yourself in</Link>
+      )}
+      {eventCtx?.ended && !isOwner && <p className="text-sm text-zinc-500">This event has ended, so requests are closed.</p>}
+
+      {/* Founder + team */}
+      <section className="card p-5">
+        <p className="eyebrow">The founder</p>
+        <Link href={`/u/${project.owner.username}`} className="mt-3 flex items-center gap-3">
+          <Avatar src={project.owner.avatar_url} name={project.owner.name} size={56} />
+          <span className="min-w-0">
+            <span className="block truncate font-display text-lg font-extrabold">{project.owner.name || project.owner.username}</span>
+            <span className="block text-sm text-zinc-500">@{project.owner.username}</span>
+          </span>
+        </Link>
+        {project.owner.bio && <p className="mt-3 text-[15px] text-zinc-700 dark:text-zinc-300">{project.owner.bio}</p>}
+        {project.owner.skills?.length > 0 && <div className="mt-3 flex flex-wrap gap-1.5">{project.owner.skills.map((s) => <span key={s} className="chip bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{s}</span>)}</div>}
+        <div className="mt-3"><LinksRow links={project.owner.links ?? {}} /></div>
+
+        {members.length > 1 && (
+          <div className="mt-5 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+            <p className="eyebrow">The team</p>
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {members.map((m) => (
+                <li key={m.user_id}>
+                  <Link href={`/u/${m.profile.username}`} className="flex items-center gap-2 rounded-full bg-zinc-100 py-1 pl-1 pr-3 text-sm transition hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700">
+                    <Avatar src={m.profile.avatar_url} name={m.profile.name} size={28} />
+                    <span className="font-semibold">{m.profile.name}</span><span className="text-zinc-500">{m.role}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </section>
+
       {isOwner && (
-        <section className="space-y-3">
-          <h2 className="font-semibold">Requests {pendingCount > 0 && <span className="chip bg-brand text-white">{pendingCount} new</span>}</h2>
-          {requests === null ? <div className="skeleton h-24" /> : requests.length === 0 ? (
-            <Empty title="No requests yet" body="When someone taps “Count me in”, they'll appear here instantly." />
+        <section>
+          <SectionTitle action={pendingCount > 0 ? <span className="chip bg-brand text-white">{pendingCount} new</span> : undefined}>Requests</SectionTitle>
+          {requests === null ? <div className="skeleton h-32 rounded-3xl" /> : requests.length === 0 ? (
+            <EmptyState emoji="📬" title="No requests yet" body="When someone taps “Count me in”, they land here instantly." />
           ) : (
-            requests.map((r) => (
-              <RequestCard key={r.id} r={r} viewerId={me!.id} onChanged={(id, status) => setRequests((rs) => rs!.map((x) => (x.id === id ? { ...x, status } : x)))} />
-            ))
+            <div className="space-y-3">
+              {requests.map((r) => (
+                <RequestCard key={r.id} r={r} viewerId={me!.id} onChanged={(id, status) => setRequests((rs) => rs!.map((x) => (x.id === id ? { ...x, status } : x)))} />
+              ))}
+            </div>
           )}
         </section>
       )}
@@ -211,6 +254,14 @@ export function ProjectDetail({ project, members, me, eventCtx, backCode }: {
     </div>
   );
 }
+
+const COMP_COLOR: Record<string, string> = {
+  equity: "bg-violet-100 text-violet-900 dark:bg-violet-400/15 dark:text-violet-200",
+  paid: "bg-emerald-100 text-emerald-900 dark:bg-emerald-400/15 dark:text-emerald-200",
+  rev_share: "bg-amber-100 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200",
+  unpaid: "bg-sky-100 text-sky-900 dark:bg-sky-400/15 dark:text-sky-200",
+  tbd: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+};
 
 function RequestSheet({ project, slotId, me, eventId, open, onClose, onSent }: {
   project: ProjectWithRelations; slotId: string | null; me: Profile; eventId: string | null; open: Slot[];
@@ -234,28 +285,43 @@ function RequestSheet({ project, slotId, me, eventId, open, onClose, onSent }: {
     setBusy(false);
     if (error) return toast(error.message, { kind: "error" });
     notify(data as string);
-    toast("Request sent! The founder will see it right away.", { kind: "success" });
+    toast("Request sent! They'll see it right away. 🙌", { kind: "success" });
     onSent({ id: data as string, project_id: project.id, slot_id: slot || null, requester_id: me.id, event_id: eventId, message, status: "pending", direction: "request", decline_reason: null, created_at: new Date().toISOString(), responded_at: null });
   };
 
+  const chosen = open.find((x) => x.id === slot);
   return (
-    <Sheet open onClose={onClose} title={`Count me in: ${project.name}`}>
-      <div className="space-y-3">
+    <Sheet open onClose={onClose} title="Count me in" subtitle={`Tell ${project.owner?.name?.split(" ")[0] || "the founder"} why you're a fit for ${project.name}.`}>
+      <div className="space-y-5">
         {project.openness === "specific" && open.length > 0 && (
+          <fieldset>
+            <legend className="label">Which role?</legend>
+            <div className="grid gap-2">
+              {open.map((s) => {
+                const on = s.id === slot;
+                return (
+                  <label key={s.id} className={cn("flex cursor-pointer items-center gap-3 rounded-2xl p-3.5 ring-1 ring-inset transition",
+                    on ? "bg-violet-50 ring-2 ring-brand dark:bg-violet-950/40 dark:ring-violet-400" : "bg-zinc-50 ring-zinc-200 hover:ring-zinc-300 dark:bg-zinc-800/50 dark:ring-zinc-700")}>
+                    <input type="radio" name="req-slot" className="sr-only" checked={on} onChange={() => setSlot(s.id)} />
+                    <span aria-hidden className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-black", on ? "bg-brand text-white" : "ring-1 ring-inset ring-zinc-300 dark:ring-zinc-600")}>{on ? "✓" : ""}</span>
+                    <span className="min-w-0 flex-1 font-bold">{s.specialty}</span>
+                    <span className={cn("chip", COMP_COLOR[s.compensation])}>{compLabel(s.compensation)}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
+        <Field label="Your pitch" optional htmlFor="req-msg" counter={{ value: message.length, max: 280 }} hint={chosen?.description ? `They're looking for: ${chosen.description}` : undefined}>
+          <textarea id="req-msg" className="input" rows={4} maxLength={280} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="What you'd bring, and when you could start" />
+        </Field>
+        {me.skills.length > 0 && (
           <div>
-            <label className="label" htmlFor="req-slot">Role</label>
-            <select id="req-slot" className="input" value={slot} onChange={(e) => setSlot(e.target.value)}>
-              {open.map((s) => <option key={s.id} value={s.id}>{s.specialty} · {compLabel(s.compensation)}</option>)}
-            </select>
+            <p className="mb-2 text-xs font-semibold text-zinc-500">Shared with the founder</p>
+            <div className="flex flex-wrap gap-1.5">{me.skills.map((k) => <span key={k} className={cn("chip", relevant.includes(k) ? "bg-brand text-white" : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300")}>{k}</span>)}</div>
           </div>
         )}
-        <div>
-          <label className="label" htmlFor="req-msg">Message (optional)</label>
-          <textarea id="req-msg" className="input" rows={4} maxLength={280} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="What you'd bring to the project" />
-          <p className="muted text-right text-xs">{message.length}/280</p>
-        </div>
-        {me.skills.length > 0 && <p className="muted text-xs">Your skills are shared with the founder: {me.skills.join(", ")}</p>}
-        <button className="btn-primary h-12 w-full text-base" disabled={busy || (project.openness === "specific" && !slot)} onClick={send}>{busy ? "Sending…" : "Send request"}</button>
+        <button className="btn-primary h-14 w-full text-base" disabled={busy || (project.openness === "specific" && !slot)} onClick={send}>{busy ? "Sending…" : "Send request ✋"}</button>
       </div>
     </Sheet>
   );

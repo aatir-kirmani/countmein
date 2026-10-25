@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { getProfile } from "@/lib/supabase/server";
-import { Empty } from "@/components/ui/Empty";
+import { PageHeader } from "@/components/ui/Form";
 import { SeriesEditor } from "@/components/c/SeriesEditor";
-import { eventStatus, fmtDate } from "@/lib/utils";
+import { OrganizerEventCard } from "@/components/c/OrganizerEventCard";
+import { eventStatus } from "@/lib/utils";
 import type { EventRow } from "@/lib/types";
 
 export default async function OrganizerPage() {
@@ -12,49 +13,63 @@ export default async function OrganizerPage() {
     supabase.from("event_series").select("id,name,slug,description,city,cover_url").eq("organizer_id", user!.id).order("created_at"),
   ]);
   const rows = (events ?? []) as (EventRow & { event_checkins: { count: number }[] })[];
+  const live = rows.filter((e) => eventStatus(e) === "live");
+  const upcoming = rows.filter((e) => eventStatus(e) === "upcoming");
+  const past = rows.filter((e) => eventStatus(e) === "ended");
+  const totalCheckins = rows.reduce((n, e) => n + (e.event_checkins?.[0]?.count ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-bold">Organizer</h1>
-        <div className="flex gap-2">
-          {profile?.is_admin && <Link href="/admin" className="btn-secondary">Admin</Link>}
-          <Link href="/organizer/new" className="btn-primary">+ New event</Link>
-        </div>
-      </div>
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Host mode"
+        title="Your events"
+        description="Create a meetup, stick the QR code by the door, and watch the room pair up."
+        action={
+          <div className="flex gap-2">
+            {profile?.is_admin && <Link href="/admin" className="btn-secondary btn-sm">Admin</Link>}
+            <Link href="/organizer/new" className="btn-primary">+ New event</Link>
+          </div>
+        }
+      />
 
       {rows.length === 0 ? (
-        <Empty title="No events yet" body="Create your first event to get a code, a QR code and a live board." action={<Link href="/organizer/new" className="btn-primary">Create event</Link>} />
+        <section className="relative overflow-hidden rounded-3xl bg-zinc-950 p-8 text-center text-white">
+          <div aria-hidden className="dot-grid pointer-events-none absolute inset-0 text-white/10" />
+          <div className="relative">
+            <p className="text-5xl" aria-hidden>🎪</p>
+            <h2 className="mt-3 text-3xl font-extrabold">Host your first meetup</h2>
+            <p className="mx-auto mt-2 max-w-sm text-zinc-300">Takes about a minute. You get a door code, a QR poster and a live board for the projector.</p>
+            <Link href="/organizer/new" className="btn-accent mt-6">Create an event <span aria-hidden>→</span></Link>
+          </div>
+        </section>
       ) : (
-        <ul className="space-y-2">
-          {rows.map((e) => {
-            const st = eventStatus(e);
-            return (
-              <li key={e.id}>
-                <Link href={`/organizer/${e.id}`} className="card flex items-center gap-3 p-3 hover:ring-brand">
-                  {e.cover_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={e.cover_url} alt="" className="h-16 w-16 shrink-0 rounded-xl object-cover" />
-                  ) : (
-                    <span aria-hidden className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-zinc-100 text-2xl dark:bg-zinc-800">🎟️</span>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{e.name}</p>
-                    <p className="muted text-sm">{fmtDate(e.starts_at)}{e.city ? ` · ${e.city}` : ""}</p>
-                    <p className="muted text-xs">{e.event_checkins?.[0]?.count ?? 0} checked in · <span className="font-mono">{e.code}</span></p>
-                  </div>
-                  <span className={`chip shrink-0 ${st === "live" ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200" : "bg-zinc-200 dark:bg-zinc-800"}`}>{st}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          <section aria-label="Totals" className="grid grid-cols-3 gap-2.5">
+            {([["Events", rows.length], ["Check-ins", totalCheckins], ["Live now", live.length]] as const).map(([k, v]) => (
+              <div key={k} className="card p-4">
+                <p className="font-display text-3xl font-extrabold tabular-nums">{v}</p>
+                <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{k}</p>
+              </div>
+            ))}
+          </section>
+          {([["Happening now", live], ["Coming up", upcoming], ["Past events", past]] as const).map(([title, list]) =>
+            list.length ? (
+              <section key={title}>
+                <h2 className="mb-3 text-lg font-extrabold">{title}</h2>
+                <ul className="grid gap-3 sm:grid-cols-2">
+                  {list.map((e) => <li key={e.id}><OrganizerEventCard event={e} checkins={e.event_checkins?.[0]?.count ?? 0} /></li>)}
+                </ul>
+              </section>
+            ) : null
+          )}
+        </>
       )}
 
       {series && series.length > 0 && (
         <section>
-          <h2 className="mb-2 font-semibold">My series</h2>
-          <ul className="space-y-2">
+          <h2 className="text-lg font-extrabold">Your series</h2>
+          <p className="mb-3 text-sm text-zinc-600 dark:text-zinc-400">Recurring meetups get a community page with every past and upcoming event.</p>
+          <ul className="space-y-2.5">
             {series.map((s) => <SeriesEditor key={s.id} series={s} userId={user!.id} />)}
           </ul>
         </section>

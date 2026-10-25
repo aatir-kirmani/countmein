@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:copy": "node scripts/check-copy.mjs",
+    "prebuild": "node scripts/check-copy.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.7",
@@ -17,8 +19,7 @@
     "qrcode": "1.5.4",
     "react": "19.1.10",
     "react-dom": "19.1.10",
-    "resend": "6.34.1",
-    "stripe": "^17.7.0"
+    "resend": "6.34.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

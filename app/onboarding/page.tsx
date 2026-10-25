@@ -59,40 +59,73 @@ function OnboardingInner() {
     if (error) setErr(error.message); else router.replace(next);
   };
 
-  if (!userId) return <div className="skeleton mx-auto mt-10 h-64 max-w-md" />;
+  if (!userId) return <div className="skeleton mx-auto mt-10 h-96 max-w-md rounded-3xl" />;
+
+  const ready = !!name.trim() && skills.length > 0;
+  const first = name.trim().split(/\s+/)[0];
 
   return (
-    <div className="mx-auto max-w-md space-y-5 pt-4">
-      <p className="muted text-xs font-medium">Step {step} of 2</p>
+    <div className="mx-auto max-w-md pt-2">
+      <div className="mb-6 flex items-center gap-3" aria-label={`Step ${step} of 2`}>
+        {[1, 2].map((n) => (
+          <div key={n} className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+            <div className={`h-full rounded-full bg-brand transition-all duration-500 ${step >= n ? "w-full" : "w-0"}`} />
+          </div>
+        ))}
+        <span className="font-mono text-xs font-bold text-zinc-500">{step}/2</span>
+      </div>
+
       {step === 1 ? (
-        <form onSubmit={saveStep1} className="space-y-5">
+        <form onSubmit={saveStep1} className="space-y-7">
           <div>
-            <h1 className="text-3xl font-extrabold">Hey there 👋</h1>
-            <p className="muted text-sm">Two quick things and you&apos;re on the board.</p>
+            <p className="eyebrow">Your name tag</p>
+            <h1 className="mt-1 text-4xl font-extrabold leading-tight">Hey{first ? `, ${first}` : " there"} <span className="inline-block origin-bottom-right motion-safe:animate-wiggle">👋</span></h1>
+            <p className="mt-2 text-zinc-600 dark:text-zinc-400">Two quick things and you&apos;re on the board.</p>
           </div>
-          <div>
-            <label htmlFor="name" className="label">Your name</label>
-            <input id="name" required className="input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+
+          <div className="overflow-hidden rounded-3xl bg-white shadow-[0_20px_50px_-25px_rgba(109,40,217,.45)] ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
+            <div className="bg-brand px-5 py-2.5 text-center text-white">
+              <p className="font-display text-lg font-extrabold uppercase leading-none tracking-wide">Hello</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-violet-200">my name is</p>
+            </div>
+            <div className="p-4">
+              <label htmlFor="name" className="sr-only">Your name</label>
+              <input
+                id="name" required value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="Your name"
+                className="w-full border-0 bg-transparent text-center font-display text-3xl font-bold italic text-zinc-900 placeholder:text-zinc-300 focus:outline-none dark:text-white dark:placeholder:text-zinc-700"
+              />
+              <div className="mx-auto mt-1 h-0.5 w-2/3 rounded bg-zinc-200 dark:bg-zinc-800" />
+              <p className="mt-2 min-h-[1.25rem] text-center text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                {skills.length ? skills.slice(0, 3).join(" · ") + (skills.length > 3 ? ` +${skills.length - 3}` : "") : "Pick your skills below"}
+              </p>
+            </div>
           </div>
-          <TagPicker label="What are you good at?" options={SKILLS} value={skills} onChange={setSkills} />
-          <button className="btn-primary min-h-[52px] w-full text-base" disabled={busy || !name.trim() || skills.length === 0}>
-            {busy ? "Saving…" : !name.trim() ? "Add your name" : skills.length === 0 ? "Pick at least one skill" : "Continue"}
-          </button>
+
+          <TagPicker label="What are you good at?" hint="Pick all that apply. Founders filter by these." options={SKILLS} value={skills} onChange={setSkills} size="lg" />
+
+          <div className="sticky bottom-16 z-10 -mx-4 bg-gradient-to-t from-zinc-50 from-60% to-transparent px-4 pb-3 pt-6 sm:bottom-0 dark:from-zinc-950">
+            <button className={`w-full text-base ${ready ? "btn-accent min-h-[56px]" : "btn-secondary min-h-[56px]"}`} disabled={busy || !ready}>
+              {busy ? "Saving…" : !name.trim() ? "Add your name" : skills.length === 0 ? "Pick at least one skill" : <>Put me on the board <span aria-hidden>→</span></>}
+            </button>
+          </div>
         </form>
       ) : (
-        <div className="space-y-5">
+        <div className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold">Stand out (optional)</h1>
-            <p className="muted text-sm">Founders decide faster when they can see your work.</p>
+            <p className="eyebrow">Optional, but it helps</p>
+            <h1 className="mt-1 text-4xl font-extrabold leading-tight">Stand out a little ✨</h1>
+            <p className="mt-2 text-zinc-600 dark:text-zinc-400">Founders say yes faster when they can see your face and your work. Skip anything you like.</p>
           </div>
-          <ProfileExtras value={extras} onChange={setExtras} userId={userId} />
-          <div className="flex gap-2">
-            <button className="btn-secondary flex-1" onClick={() => router.replace(next)}>Skip</button>
-            <button className="btn-primary flex-1" onClick={saveStep2} disabled={busy}>{busy ? "Saving…" : "Save & continue"}</button>
+          <div className="card p-5">
+            <ProfileExtras value={extras} onChange={setExtras} userId={userId} />
+          </div>
+          <div className="sticky bottom-16 z-10 -mx-4 flex gap-2 bg-gradient-to-t from-zinc-50 from-60% to-transparent px-4 pb-3 pt-6 sm:bottom-0 dark:from-zinc-950">
+            <button className="btn-secondary min-h-[56px] flex-1" onClick={() => router.replace(next)}>Skip for now</button>
+            <button className="btn-primary min-h-[56px] flex-[1.4]" onClick={saveStep2} disabled={busy}>{busy ? "Saving…" : "Save and continue"}</button>
           </div>
         </div>
       )}
-      {err && <p className="text-sm text-red-600" role="alert">{err}</p>}
+      {err && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-medium text-red-700 dark:bg-red-950/50 dark:text-red-300" role="alert">{err}</p>}
     </div>
   );
 }

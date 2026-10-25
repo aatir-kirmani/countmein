@@ -9,18 +9,38 @@ h1, h2, h3 { @apply font-display tracking-tight; }
 body { @apply bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 antialiased; }
 
 @layer components {
-  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 min-h-[44px] font-semibold text-sm transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand; }
-  .btn-primary { @apply btn bg-brand text-white hover:bg-violet-800; }
-  .btn-secondary { @apply btn bg-white text-zinc-900 ring-1 ring-zinc-300 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-700 dark:hover:bg-zinc-800; }
-  .btn-ghost { @apply btn hover:bg-zinc-100 dark:hover:bg-zinc-800; }
-  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700; }
-  .input { @apply w-full rounded-xl border border-zinc-300 bg-white px-3 min-h-[44px] text-base text-zinc-900 placeholder:text-zinc-500 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:placeholder:text-zinc-400; }
-  textarea.input { @apply py-2; }
-  .label { @apply mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300; }
-  .card { @apply rounded-2xl bg-white ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800; }
-  .chip { @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium; }
+  /* Buttons: chunky, tactile, with a pressed state. */
+  .btn { @apply inline-flex select-none items-center justify-center gap-2 rounded-2xl px-5 min-h-[48px] text-[15px] font-bold transition-all duration-150 active:translate-y-[2px] disabled:opacity-50 disabled:pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand; }
+  .btn-primary { @apply btn bg-brand text-white shadow-[0_4px_0_0_#4c1d95] hover:-translate-y-px hover:bg-violet-700 active:shadow-[0_1px_0_0_#4c1d95]; }
+  .btn-accent { @apply btn bg-lime-300 text-zinc-900 shadow-[0_4px_0_0_#4d7c0f] hover:-translate-y-px active:shadow-[0_1px_0_0_#4d7c0f]; }
+  .btn-secondary { @apply btn bg-white text-zinc-900 ring-1 ring-inset ring-zinc-200 shadow-[0_3px_0_0_#e4e4e7] hover:bg-zinc-50 active:shadow-none dark:bg-zinc-900 dark:text-zinc-100 dark:ring-zinc-800 dark:shadow-[0_3px_0_0_#27272a] dark:hover:bg-zinc-800; }
+  .btn-ghost { @apply btn font-semibold shadow-none hover:bg-zinc-100 active:translate-y-0 dark:hover:bg-zinc-800/70; }
+  .btn-danger { @apply btn bg-red-600 text-white shadow-[0_4px_0_0_#991b1b] hover:bg-red-700 active:shadow-[0_1px_0_0_#991b1b]; }
+  .btn-sm { @apply min-h-[38px] rounded-xl px-3.5 text-sm; }
+
+  /* Inputs: filled surface, one height for every control type. */
+  .input { @apply block w-full appearance-none rounded-2xl border-0 bg-zinc-100 px-4 h-12 text-base text-zinc-900 ring-1 ring-inset ring-transparent transition placeholder:text-zinc-400 hover:ring-zinc-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand disabled:opacity-60 dark:bg-zinc-800/70 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:hover:ring-zinc-600 dark:focus:bg-zinc-950 dark:focus:ring-violet-400; }
+  .input:where(textarea) { @apply h-auto min-h-[112px] resize-y py-3 leading-relaxed; }
+  .input:where(select) { @apply cursor-pointer pr-11 bg-no-repeat; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-position: right 1rem center; background-size: 1.1rem; }
+  .input:where([type="datetime-local"], [type="date"], [type="time"]) { @apply cursor-pointer; min-width: 0; }
+  .input[aria-invalid="true"] { @apply ring-2 ring-red-500; }
+  .label { @apply mb-1.5 flex items-baseline gap-1.5 text-sm font-semibold text-zinc-800 dark:text-zinc-200; }
+  .hint { @apply mt-1.5 text-xs text-zinc-500 dark:text-zinc-400; }
+
+  .card { @apply rounded-3xl bg-white ring-1 ring-zinc-200/80 dark:bg-zinc-900 dark:ring-zinc-800; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold; }
   .muted { @apply text-zinc-600 dark:text-zinc-400; }
+  .eyebrow { @apply font-mono text-[11px] font-bold uppercase tracking-[0.25em] text-brand dark:text-violet-400; }
 }
+
+/* Number inputs: drop native spinners everywhere (we use steppers where it matters). */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+/* Keep datetime text aligned and the picker icon tinted in both themes. */
+input[type="datetime-local"]::-webkit-date-and-time-value { text-align: left; }
+input::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+.dark input::-webkit-calendar-picker-indicator { filter: invert(1); }
 
 .skeleton { @apply animate-pulse rounded-lg bg-zinc-200 dark:bg-zinc-800; }
 

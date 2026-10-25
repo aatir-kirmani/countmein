@@ -6,6 +6,8 @@ import type { EventRow } from "@/lib/types";
 import { openSlots, siteUrl, stageLabel } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { useEventData } from "./useEventData";
+import { Confetti } from "./Confetti";
+import { hueFor } from "./ui";
 
 type Celebration = { id: string; who: string; avatar: string | null; project: string; role: string };
 
@@ -64,45 +66,58 @@ export function ProjectorBoard({ event, sponsors }: { event: EventRow; sponsors:
   const current = queue[0];
 
   return (
-    <div className="dark fixed inset-0 flex flex-col bg-zinc-950 text-white">
-      <header className="flex items-center justify-between gap-6 border-b border-zinc-800 px-8 py-5">
+    <div className="dark fixed inset-0 flex flex-col overflow-hidden bg-zinc-950 text-white">
+      <div aria-hidden className="pointer-events-none absolute -left-40 -top-40 h-[520px] w-[520px] rounded-full bg-violet-700/30 blur-[120px]" />
+      <div aria-hidden className="pointer-events-none absolute -bottom-40 right-40 h-[420px] w-[420px] rounded-full bg-lime-400/10 blur-[120px]" />
+      <div aria-hidden className="dot-grid pointer-events-none absolute inset-0 text-white/[0.04]" />
+
+      <header className="relative flex items-end justify-between gap-8 px-10 pb-6 pt-8">
         <div className="min-w-0">
-          <p className="text-lg font-bold text-violet-400">Count<span className="text-white">me</span>in · Live Board</p>
-          <h1 className="truncate text-4xl font-extrabold tracking-tight">{event.name}</h1>
+          <p className="flex items-center gap-3 font-display text-xl font-extrabold">
+            <span>Count<span className="text-violet-400">me</span>in<span className="text-lime-300">✦</span></span>
+            <span className="flex items-center gap-1.5 rounded-full bg-red-500 px-3 py-1 text-xs font-black uppercase tracking-wider">
+              <span className="h-2 w-2 animate-ping rounded-full bg-white" /> Live
+            </span>
+          </p>
+          <h1 className="mt-2 truncate font-display text-6xl font-extrabold leading-none tracking-tight">{event.name}</h1>
         </div>
-        <div className="flex shrink-0 gap-8 text-center">
-          <Stat n={people?.length ?? 0} label="here now" />
-          <Stat n={projects?.length ?? 0} label="projects" />
-          <Stat n={matchCount} label="matches" />
+        <div className="flex shrink-0 gap-3">
+          <Stat n={people?.length ?? 0} label="in the room" accent="text-white" />
+          <Stat n={projects?.length ?? 0} label="projects" accent="text-violet-300" />
+          <Stat n={matchCount} label="matches" accent="text-lime-300" />
         </div>
       </header>
 
-      <div ref={scroller} className="flex-1 overflow-hidden px-8 py-6 pr-[300px]">
+      <div ref={scroller} className="relative flex-1 overflow-hidden px-10 pb-8 pr-[340px]">
         {projects && projects.length === 0 && (
-          <p className="mt-24 text-center text-3xl font-semibold text-zinc-400">No projects yet. Scan the code and be the first!</p>
+          <div className="mt-20 text-center">
+            <p className="text-8xl" aria-hidden>🌱</p>
+            <p className="mt-6 font-display text-5xl font-extrabold">The board is wide open.</p>
+            <p className="mt-3 text-2xl text-zinc-400">Scan the code and be the first project up.</p>
+          </div>
         )}
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 2xl:grid-cols-3">
           {(projects ?? []).map((p) => {
             const slots = openSlots(p);
             return (
-              <article key={p.id} className="rounded-3xl bg-zinc-900 p-6 ring-1 ring-zinc-800">
-                <div className="flex items-start gap-4">
+              <article key={p.id} className="rounded-[2rem] bg-zinc-900/80 p-7 ring-1 ring-white/10 backdrop-blur">
+                <div className="flex items-start gap-5">
                   {p.logo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.logo_url} alt="" className="h-16 w-16 rounded-2xl object-cover" />
+                    <img src={p.logo_url} alt="" className="h-20 w-20 rounded-3xl object-cover" />
                   ) : (
-                    <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-800 text-3xl font-bold">{p.name[0]}</span>
+                    <span className={`flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl font-display text-4xl font-extrabold ${hueFor(p.name)}`}>{p.name[0]}</span>
                   )}
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-2xl font-bold">{p.name}</h2>
-                    <p className="line-clamp-2 text-lg text-zinc-300">{p.pitch}</p>
+                    <h2 className="truncate font-display text-3xl font-extrabold leading-tight">{p.name}</h2>
+                    <p className="mt-1 line-clamp-2 text-xl leading-snug text-zinc-300">{p.pitch}</p>
                   </div>
                 </div>
-                <div className="mt-4 flex flex-wrap items-center gap-2 text-base">
-                  <span className="flex items-center gap-2 text-zinc-300"><Avatar src={p.owner?.avatar_url} name={p.owner?.name ?? ""} size={28} />{p.owner?.name}</span>
-                  <span className="rounded-full bg-zinc-800 px-3 py-1 text-sm">{stageLabel(p.stage)}</span>
-                  {p.openness === "anyone" && <span className="rounded-full bg-emerald-700 px-3 py-1 text-sm font-semibold">Open to anyone</span>}
-                  {slots.length > 0 && <span className="rounded-full bg-violet-700 px-3 py-1 text-sm font-semibold">Needs: {slots.map((s) => s.specialty).join(", ")}</span>}
+                <div className="mt-5 flex flex-wrap items-center gap-2.5 text-base">
+                  <span className="flex items-center gap-2 text-zinc-300"><Avatar src={p.owner?.avatar_url} name={p.owner?.name ?? ""} size={32} />{p.owner?.name}</span>
+                  <span className="rounded-full bg-white/10 px-3.5 py-1 text-sm font-semibold">{stageLabel(p.stage)}</span>
+                  {p.openness === "anyone" && <span className="rounded-full bg-lime-300 px-3.5 py-1 text-sm font-bold text-zinc-900">🙌 Open to anyone</span>}
+                  {slots.map((s) => <span key={s.id} className="rounded-full bg-violet-500 px-3.5 py-1 text-sm font-bold">{s.specialty}</span>)}
                 </div>
               </article>
             );
@@ -110,23 +125,24 @@ export function ProjectorBoard({ event, sponsors }: { event: EventRow; sponsors:
         </div>
       </div>
 
-      <aside className="fixed bottom-6 right-6 w-[260px] rounded-3xl bg-white p-4 text-center text-zinc-900 shadow-2xl">
+      <aside className="fixed bottom-8 right-8 w-[280px] rotate-[1.5deg] rounded-[2rem] bg-white p-5 text-center text-zinc-900 shadow-[0_30px_80px_-20px_rgba(163,230,53,.45)] ring-4 ring-lime-300">
+        <p className="font-display text-lg font-extrabold">Scan to join the board</p>
         {qr && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={qr} alt={`QR code to join ${event.name}`} className="mx-auto w-full" />
+          <img src={qr} alt={`QR code to join ${event.name}`} className="mx-auto mt-2 w-full" />
         )}
-        <p className="mt-2 text-sm font-medium">Scan or enter code</p>
-        <p className="font-mono text-4xl font-extrabold tracking-widest">{event.code}</p>
+        <p className="mt-1 text-xs font-semibold uppercase tracking-widest text-zinc-500">or enter code</p>
+        <p className="font-mono text-4xl font-extrabold tracking-[0.2em]">{event.code}</p>
       </aside>
 
       {sponsors.length > 0 && (
-        <footer className="flex items-center gap-6 border-t border-zinc-800 px-8 py-3 pr-[300px] text-zinc-400">
-          <span className="text-sm uppercase tracking-wide">Thanks to</span>
+        <footer className="relative flex items-center gap-6 border-t border-white/10 px-10 py-4 pr-[340px] text-zinc-400">
+          <span className="font-mono text-xs font-bold uppercase tracking-[0.25em]">Made possible by</span>
           {sponsors.map((s) => (
             <span key={s.id} className="flex items-center gap-2 text-lg font-semibold text-zinc-200">
               {s.logo_url && (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.logo_url} alt="" className="h-7 w-7 rounded object-contain" />
+                <img src={s.logo_url} alt="" className="h-8 w-8 rounded-lg object-contain" />
               )}
               {s.name}
             </span>
@@ -135,14 +151,17 @@ export function ProjectorBoard({ event, sponsors }: { event: EventRow; sponsors:
       )}
 
       {current && (
-        <div key={current.id} role="status" className="fixed inset-0 z-50 flex items-center justify-center bg-violet-950/90 backdrop-blur">
-          <div className="animate-pop text-center">
-            <p className="text-7xl" aria-hidden>🎉</p>
-            <div className="mt-6 flex justify-center"><Avatar src={current.avatar} name={current.who} size={140} /></div>
-            <p className="mt-6 text-6xl font-extrabold leading-tight">
-              {current.who} joined <span className="text-violet-300">{current.project}</span>
+        <div key={current.id} role="status" className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-violet-950/95 via-brand/90 to-fuchsia-900/95 backdrop-blur-md">
+          <Confetti count={60} />
+          <div className="relative animate-pop px-10 text-center">
+            <p className="font-mono text-lg font-bold uppercase tracking-[0.4em] text-lime-300">It&apos;s a match</p>
+            <div className="mt-8 flex justify-center">
+              <span className="rounded-full ring-8 ring-lime-300"><Avatar src={current.avatar} name={current.who} size={168} /></span>
+            </div>
+            <p className="mt-8 font-display text-7xl font-extrabold leading-[1.05]">
+              {current.who} joined <span className="text-lime-300">{current.project}</span>
             </p>
-            <p className="mt-3 text-4xl font-semibold text-violet-200">as {current.role}</p>
+            <p className="mt-4 text-4xl font-semibold text-violet-100">as {current.role} 🎉</p>
           </div>
         </div>
       )}
@@ -150,11 +169,11 @@ export function ProjectorBoard({ event, sponsors }: { event: EventRow; sponsors:
   );
 }
 
-function Stat({ n, label }: { n: number; label: string }) {
+function Stat({ n, label, accent }: { n: number; label: string; accent: string }) {
   return (
-    <div>
-      <p className="text-5xl font-extrabold tabular-nums">{n}</p>
-      <p className="text-sm uppercase tracking-wide text-zinc-400">{label}</p>
+    <div className="min-w-[140px] rounded-3xl bg-white/[0.06] px-6 py-4 text-center ring-1 ring-white/10">
+      <p className={`font-display text-6xl font-extrabold tabular-nums leading-none ${accent}`}>{n}</p>
+      <p className="mt-2 text-sm font-semibold uppercase tracking-widest text-zinc-400">{label}</p>
     </div>
   );
 }

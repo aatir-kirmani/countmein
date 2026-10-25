@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useApp } from "@/components/Providers";
 import type { EventRow, Profile, ProjectWithRelations, JoinRequest } from "@/lib/types";
@@ -9,9 +9,11 @@ import { cn, eventStatus, fmtDate, needsMySkills, openSlots } from "@/lib/utils"
 import { ProjectCard, ProjectCardSkeleton } from "@/components/ProjectCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { EventMedia } from "@/components/EventMedia";
-import { Empty } from "@/components/ui/Empty";
 import { StatusBadge } from "@/components/ui/Badges";
+import { Field } from "@/components/ui/Form";
 import { Sheet } from "./Sheet";
+import { Confetti } from "./Confetti";
+import { ChipSelect, EmptyState, FilterChip, Icon, ProjectLogo, SectionTitle, TabBar } from "./ui";
 import { useEventData, type Attendee } from "./useEventData";
 import { notify } from "./notify";
 
@@ -19,9 +21,9 @@ type Sponsor = { id: string; name: string; logo_url: string | null; url: string 
 type Tab = "projects" | "people" | "activity";
 const LOOKING_LABEL: Record<string, string> = Object.fromEntries(LOOKING_FOR.map((l) => [l.value, l.label]));
 
-export function EventView({ event, profile, initialCheckin, hasTicket, justPaid, sponsors }: {
+export function EventView({ event, profile, initialCheckin, hasTicket: initialHasTicket, justPaid, highlightCheckin = false, sponsors }: {
   event: EventRow; profile: Profile | null; initialCheckin: { location_note: string | null } | null;
-  hasTicket: boolean; justPaid: boolean; sponsors: Sponsor[];
+  hasTicket: boolean; justPaid: boolean; highlightCheckin?: boolean; sponsors: Sponsor[];
 }) {
   const supabase = createClient();
   const { toast } = useApp();
@@ -35,6 +37,35 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
   const [tab, setTab] = useState<Tab>("projects");
   const [bringOpen, setBringOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
+  const [hasTicket, setHasTicket] = useState(initialHasTicket);
+  const [confirming, setConfirming] = useState(justPaid && !initialHasTicket);
+  const checkinRef = useRef<HTMLElement>(null);
+
+  // Arrived from "post a project" without checking in: bring the check-in card into view.
+  useEffect(() => {
+    if (highlightCheckin && !checkedIn) checkinRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightCheckin, checkedIn]);
+
+  // Back from checkout: poll the ticket every 3s for up to 30s while the payment webhook lands.
+  useEffect(() => {
+    if (!confirming || !profile) return;
+    let tries = 0;
+    const id = setInterval(async () => {
+      tries++;
+      const { data } = await supabase.from("event_tickets").select("status").eq("event_id", event.id).eq("user_id", profile.id).maybeSingle();
+      if (data?.status === "paid") {
+        clearInterval(id);
+        setHasTicket(true);
+        setConfirming(false);
+        toast("Ticket confirmed. You can check in now!", { kind: "success" });
+      } else if (tries >= 10) {
+        clearInterval(id);
+        setConfirming(false);
+      }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [confirming, profile, supabase, event.id, toast]);
 
   const doCheckin = async () => {
     if (!profile) return;
@@ -46,91 +77,107 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
       return toast(friendlyCheckinError(error.message), { kind: "error" });
     }
     setCheckin(data);
-    toast("You're checked in! 👋", { kind: "success" });
+    setCelebrate(true);
+    navigator.vibrate?.([30, 40, 30]);
+    setTimeout(() => setCelebrate(false), 2200);
     reload();
-    setBringOpen(true);
+    setTimeout(() => setBringOpen(true), 900);
   };
 
   const buyTicket = async () => {
     setBusy(true);
-    const res = await fetch("/api/stripe/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: event.id }) });
+    const res = await fetch("/api/tickets/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ eventId: event.id }) });
     const j = await res.json().catch(() => ({}));
     setBusy(false);
     if (j.url) window.location.href = j.url;
-    else toast(res.status === 501 ? "Ticket sales aren't set up for this event yet. Ask the organizer to check you in." : j.error || "Couldn't start checkout", { kind: "error" });
+    else toast(j.error || (res.status === 501 ? "Ticket sales aren't set up for this event yet. Ask the organizer to check you in." : "Couldn't start checkout. Try again."), { kind: "error" });
   };
 
   const needsTicket = event.ticket_price_cents > 0 && !hasTicket && !isOrganizer;
+  const price = (event.ticket_price_cents / 100).toLocaleString(undefined, { style: "currency", currency: event.currency.toUpperCase() });
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <section className="card overflow-hidden">
-        <EventMedia event={event} />
-        <div className="space-y-2 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={cn("chip", status === "live" ? "bg-emerald-600 text-white" : status === "ended" ? "bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200" : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200")}>
-              {status === "live" ? "● Live now" : status === "ended" ? "Ended" : "Upcoming"}
-            </span>
-            <span className="chip bg-zinc-100 font-mono dark:bg-zinc-800">{event.code}</span>
-            {people && <span className="muted text-xs">{people.length} here</span>}
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-tight">{event.name}</h1>
-          <p className="muted text-sm">{fmtDate(event.starts_at)}{event.venue ? ` · ${event.venue}` : ""}{event.city ? `, ${event.city}` : ""}</p>
-          {event.capacity && people && <p className="muted text-xs">{Math.max(event.capacity - people.length, 0)} of {event.capacity} spots left</p>}
-          {event.description && <p className="whitespace-pre-line text-sm">{event.description}</p>}
-          {isOrganizer && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Link className="btn-secondary" href={`/organizer/${event.id}`}>Manage event</Link>
-              <Link className="btn-secondary" href={`/e/${event.code}/board`} target="_blank">Open Live Board ↗</Link>
-            </div>
-          )}
-        </div>
-      </section>
+    <div className="space-y-5">
+      <EventHeader event={event} status={status} people={people} isOrganizer={isOrganizer} />
 
       {ended && (
-        <div role="status" className="card bg-zinc-100 p-3 text-sm dark:bg-zinc-900">This event has ended. The board is read-only and stays browsable for 7 days.</div>
+        <div role="status" className="flex items-start gap-3 rounded-3xl bg-zinc-100 p-4 text-sm dark:bg-zinc-900">
+          <span aria-hidden className="text-xl">🌙</span>
+          <p><b>That&apos;s a wrap.</b> The board is read-only now and stays up for 7 days so you can follow up with people.</p>
+        </div>
       )}
 
-      {/* Check-in panel */}
+      {/* Check-in moment */}
       {!profile ? (
-        <section className="card space-y-3 p-4">
-          <p className="font-semibold">Join the room</p>
-          <p className="muted text-sm">Sign in to check in, share what you&apos;re building and team up with people here.</p>
-          <Link href={`/login?next=/e/${event.code}`} className="btn-primary w-full">Sign in to check in</Link>
+        <section className="relative overflow-hidden rounded-[2rem] bg-zinc-950 p-6 text-white dark:ring-1 dark:ring-zinc-800">
+          <div aria-hidden className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-violet-600/40 blur-3xl" />
+          <p className="eyebrow !text-lime-300">You&apos;re invited</p>
+          <h2 className="mt-2 text-2xl font-extrabold leading-tight">Join the room, find your people.</h2>
+          <p className="mt-2 text-sm text-zinc-300">Sign in to check in, show what you&apos;re building and team up with folks here tonight.</p>
+          <Link href={`/login?next=/e/${event.code}`} className="btn-accent mt-5 w-full">Sign in to check in</Link>
         </section>
       ) : !checkedIn && !ended ? (
-        <section className="card space-y-3 p-4">
-          {justPaid && !hasTicket && <p className="text-sm text-emerald-700 dark:text-emerald-400">Payment received. Your ticket will be confirmed in a moment; refresh if check-in fails.</p>}
-          {needsTicket ? (
-            <>
-              <p className="font-semibold">Ticket required</p>
-              <button className="btn-primary w-full" disabled={busy} onClick={buyTicket}>
-                Buy ticket · {(event.ticket_price_cents / 100).toLocaleString(undefined, { style: "currency", currency: event.currency.toUpperCase() })}
-              </button>
-              {justPaid && <button className="btn-secondary w-full" disabled={busy} onClick={doCheckin}>I&apos;ve paid, check me in</button>}
-            </>
-          ) : (
-            <>
-              <button className="btn-primary h-14 w-full text-base" disabled={busy} onClick={doCheckin}>{busy ? "Checking in…" : status === "upcoming" ? "Check in early" : "Check in: I'm here"}</button>
-              <p className="muted text-center text-xs">Checking in puts you on the board so people can find you and your projects.</p>
-            </>
+        <section
+          ref={checkinRef}
+          id="checkin"
+          className={cn(
+            "relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-violet-700 via-brand to-fuchsia-700 p-6 text-white shadow-[0_20px_50px_-20px_rgba(109,40,217,.7)]",
+            highlightCheckin && "ring-4 ring-lime-300 ring-offset-2 ring-offset-zinc-50 dark:ring-offset-zinc-950"
           )}
+        >
+          <div aria-hidden className="dot-grid absolute inset-0 text-white/10" />
+          <div className="relative">
+            {highlightCheckin && (
+              <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-lime-300 px-3 py-1 text-xs font-bold text-zinc-900">
+                👇 Check in first to post your project
+              </p>
+            )}
+            {confirming && (
+              <p role="status" className="mb-3 flex items-center gap-2 rounded-2xl bg-white/15 px-3 py-2 text-sm font-semibold backdrop-blur">
+                <span className="h-2 w-2 animate-ping rounded-full bg-lime-300" /> Payment received, confirming your ticket…
+              </p>
+            )}
+            {needsTicket ? (
+              <>
+                <p className="eyebrow !text-lime-300">Ticket required</p>
+                <h2 className="mt-1 text-3xl font-extrabold">Grab your spot</h2>
+                <p className="mt-1 text-sm text-violet-100">One ticket, the whole room. Checkout takes a minute.</p>
+                <button className="btn-accent mt-5 h-14 w-full text-base" disabled={busy || confirming} onClick={buyTicket}>
+                  <Icon name="ticket" className="h-5 w-5" /> {busy ? "Opening checkout…" : `Get a ticket · ${price}`}
+                </button>
+                {justPaid && !confirming && (
+                  <button className="btn mt-2 w-full bg-white/15 text-white hover:bg-white/25" disabled={busy} onClick={doCheckin}>I&apos;ve paid, check me in</button>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="eyebrow !text-lime-300">{status === "upcoming" ? "Doors open soon" : "You made it"}</p>
+                <h2 className="mt-1 text-3xl font-extrabold leading-tight">{status === "upcoming" ? "Save your spot on the board" : "Are you in the room?"}</h2>
+                <p className="mt-1 text-sm text-violet-100">Checking in puts you on the live board so people can find you and what you&apos;re building.</p>
+                <button className="btn-accent mt-5 h-14 w-full text-lg" disabled={busy} onClick={doCheckin}>
+                  {busy ? "Checking you in…" : status === "upcoming" ? "Check in early ✋" : "I'm here! 👋"}
+                </button>
+              </>
+            )}
+          </div>
         </section>
-      ) : ended && !checkedIn ? null : checkedIn ? (
-        <CheckedInPanel eventId={event.id} userId={profile.id} note={checkin?.location_note ?? null} ended={ended}
-          onNote={(n) => setCheckin({ location_note: n })} onBring={() => setBringOpen(true)} code={event.code} />
+      ) : checkedIn && profile ? (
+        <div className="relative">
+          {celebrate && <Confetti />}
+          <CheckedInPanel eventId={event.id} userId={profile.id} note={checkin?.location_note ?? null} ended={ended} fresh={celebrate}
+            onNote={(n) => setCheckin({ location_note: n })} onBring={() => setBringOpen(true)} code={event.code} />
+        </div>
       ) : null}
 
       {sponsors.length > 0 && (
-        <section aria-label="Sponsors" className="flex items-center gap-3 overflow-x-auto py-1">
-          <span className="muted shrink-0 text-xs uppercase tracking-wide">Sponsors</span>
+        <section aria-label="Sponsors" className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 py-1 [scrollbar-width:none]">
+          <span className="shrink-0 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Made possible by</span>
           {sponsors.map((s) => (
-            <a key={s.id} href={s.url ?? undefined} target="_blank" rel="noopener noreferrer" className="flex shrink-0 items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:ring-zinc-800">
-              {s.logo_url && (
+            <a key={s.id} href={s.url ?? undefined} target="_blank" rel="noopener noreferrer" className="flex shrink-0 items-center gap-2 rounded-full bg-white py-1.5 pl-1.5 pr-3.5 text-sm font-semibold ring-1 ring-zinc-200 transition hover:ring-zinc-300 dark:bg-zinc-900 dark:ring-zinc-800">
+              {s.logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={s.logo_url} alt="" className="h-5 w-5 rounded object-contain" />
-              )}
+                <img src={s.logo_url} alt="" className="h-6 w-6 rounded-full object-contain" />
+              ) : <ProjectLogo name={s.name} url={null} size={24} className="rounded-full" />}
               {s.name}
             </a>
           ))}
@@ -138,21 +185,26 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
       )}
 
       {!canViewBoard ? (
-        <Empty title="Check in to see the board" body="Projects and people at this event are visible to checked-in attendees." />
+        <EmptyState emoji="🔒" title="The board is for people in the room" body="Check in above and you'll see every project and person here, live." />
       ) : (
         <>
-          <div role="tablist" className="sticky top-14 z-30 -mx-4 grid grid-cols-3 border-b border-zinc-200 bg-zinc-50/95 px-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95">
-            {(["projects", "people", "activity"] as Tab[]).map((t) => (
-              <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
-                className={cn("min-h-[48px] border-b-2 text-sm font-semibold capitalize", tab === t ? "border-brand text-brand" : "border-transparent muted")}>
-                {t === "activity" ? "My activity" : t}
-                {t === "projects" && projects ? ` (${projects.length})` : t === "people" && people ? ` (${people.length})` : ""}
-              </button>
-            ))}
+          <div className="sticky top-14 z-30 -mx-4 bg-zinc-50/85 px-4 py-2 backdrop-blur-md dark:bg-zinc-950/85">
+            <TabBar
+              label="Event sections"
+              value={tab}
+              onChange={setTab}
+              tabs={[
+                { value: "projects", label: "Projects", count: projects?.length ?? null },
+                { value: "people", label: "People", count: people?.length ?? null },
+                { value: "activity", label: "My activity" },
+              ]}
+            />
           </div>
-          {tab === "projects" && <ProjectsTab projects={projects} people={people} profile={profile} code={event.code} checkedIn={checkedIn} ended={ended} onPost={() => setBringOpen(true)} onPeople={() => setTab("people")} />}
-          {tab === "people" && <PeopleTab people={people} profile={profile} event={event} ended={ended} checkedIn={checkedIn} />}
-          {tab === "activity" && (profile ? <ActivityTab eventId={event.id} code={event.code} profile={profile} projects={projects} /> : <Empty title="Sign in to see your activity" />)}
+          <div key={tab} className="animate-rise">
+            {tab === "projects" && <ProjectsTab projects={projects} people={people} profile={profile} code={event.code} checkedIn={checkedIn} ended={ended} onPost={() => setBringOpen(true)} onPeople={() => setTab("people")} />}
+            {tab === "people" && <PeopleTab people={people} profile={profile} event={event} ended={ended} checkedIn={checkedIn} />}
+            {tab === "activity" && (profile ? <ActivityTab eventId={event.id} code={event.code} profile={profile} projects={projects} /> : <EmptyState emoji="👀" title="Sign in to see your activity" />)}
+          </div>
         </>
       )}
 
@@ -161,8 +213,82 @@ export function EventView({ event, profile, initialCheckin, hasTicket, justPaid,
   );
 }
 
-function CheckedInPanel({ eventId, userId, note, ended, onNote, onBring, code }: {
-  eventId: string; userId: string; note: string | null; ended: boolean; onNote: (n: string | null) => void; onBring: () => void; code: string;
+function EventHeader({ event, status, people, isOrganizer }: { event: EventRow; status: string; people: Attendee[] | null; isOrganizer: boolean }) {
+  const { toast } = useApp();
+  const [more, setMore] = useState(false);
+  const faces = (people ?? []).slice(0, 5);
+  const longDesc = (event.description ?? "").length > 240;
+  const spotsLeft = event.capacity && people ? Math.max(event.capacity - people.length, 0) : null;
+  const copyCode = async () => {
+    try { await navigator.clipboard.writeText(`${window.location.origin}/e/${event.code}`); toast("Event link copied"); } catch { /* clipboard blocked */ }
+  };
+
+  return (
+    <header className="space-y-4">
+      <EventMedia event={event} className="shadow-[0_20px_50px_-25px_rgba(0,0,0,.45)]" />
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          {status === "live" ? (
+            <span className="chip bg-red-500 text-white"><span className="h-1.5 w-1.5 animate-ping rounded-full bg-white" />Live now</span>
+          ) : status === "ended" ? (
+            <span className="chip bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">Ended</span>
+          ) : (
+            <span className="chip bg-amber-100 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200">Upcoming</span>
+          )}
+          <button onClick={copyCode} className="chip bg-zinc-900 font-mono tracking-widest text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900" aria-label={`Event code ${event.code}, copy link`}>
+            {event.code} <Icon name="copy" className="h-3 w-3" />
+          </button>
+          {event.visibility === "invite_only" && <span className="chip bg-violet-100 text-violet-900 dark:bg-violet-400/15 dark:text-violet-200">Invite-only</span>}
+        </div>
+        <h1 className="mt-3 text-4xl font-extrabold leading-[1.05] sm:text-5xl">{event.name}</h1>
+        <div className="mt-3 flex flex-col gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
+          <span className="flex items-center gap-2"><Icon name="calendar" className="h-4 w-4 shrink-0" />{fmtDate(event.starts_at)}</span>
+          {(event.venue || event.city) && (
+            <span className="flex items-center gap-2"><Icon name="pin" className="h-4 w-4 shrink-0" />{[event.venue, event.city].filter(Boolean).join(", ")}</span>
+          )}
+        </div>
+
+        {people && (
+          <div className="mt-4 flex items-center gap-3">
+            {faces.length > 0 && (
+              <div className="flex -space-x-2">
+                {faces.map((a) => (
+                  <span key={a.user_id} className="rounded-full ring-[3px] ring-zinc-50 dark:ring-zinc-950"><Avatar src={a.profile.avatar_url} name={a.profile.name.split(" ")[0] ?? ""} size={32} /></span>
+                ))}
+              </div>
+            )}
+            <p className="text-sm">
+              <b className="font-display text-base">{people.length}</b> <span className="text-zinc-600 dark:text-zinc-400">{people.length === 1 ? "builder" : "builders"} here</span>
+              {spotsLeft !== null && <span className="text-zinc-600 dark:text-zinc-400"> · {spotsLeft} of {event.capacity} spots left</span>}
+            </p>
+          </div>
+        )}
+        {spotsLeft !== null && event.capacity && (
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800" aria-hidden>
+            <div className="h-full rounded-full bg-gradient-to-r from-brand to-fuchsia-500" style={{ width: `${Math.min(100, ((event.capacity - spotsLeft) / event.capacity) * 100)}%` }} />
+          </div>
+        )}
+
+        {event.description && (
+          <div className="mt-4">
+            <p className={cn("whitespace-pre-line text-[15px] leading-relaxed text-zinc-700 dark:text-zinc-300", !more && longDesc && "line-clamp-3")}>{event.description}</p>
+            {longDesc && <button className="mt-1 text-sm font-bold text-brand dark:text-violet-300" onClick={() => setMore(!more)}>{more ? "Show less" : "Read more"}</button>}
+          </div>
+        )}
+
+        {isOrganizer && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link className="btn-secondary btn-sm" href={`/organizer/${event.id}`}>Manage event</Link>
+            <Link className="btn-secondary btn-sm" href={`/e/${event.code}/board`} target="_blank">Open Live Board <Icon name="external" className="h-3.5 w-3.5" /></Link>
+          </div>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function CheckedInPanel({ eventId, userId, note, ended, fresh, onNote, onBring, code }: {
+  eventId: string; userId: string; note: string | null; ended: boolean; fresh: boolean; onNote: (n: string | null) => void; onBring: () => void; code: string;
 }) {
   const supabase = createClient();
   const { toast } = useApp();
@@ -173,24 +299,40 @@ function CheckedInPanel({ eventId, userId, note, ended, onNote, onBring, code }:
     onNote(v); setEditing(false);
     const { error } = await supabase.from("event_checkins").update({ location_note: v }).eq("event_id", eventId).eq("user_id", userId);
     if (error) toast(error.message, { kind: "error" });
+    else toast(v ? "Saved. Founders can find you now." : "Location cleared");
   };
   return (
-    <section className="card space-y-3 p-4">
-      <p className="font-semibold text-emerald-700 dark:text-emerald-400">✓ You&apos;re here</p>
-      {editing ? (
-        <div className="flex gap-2">
-          <input className="input" maxLength={80} autoFocus placeholder="e.g. table 4, blue shirt" value={val} onChange={(e) => setVal(e.target.value)} aria-label="Where can people find you?" onKeyDown={(e) => e.key === "Enter" && save()} />
-          <button className="btn-primary" onClick={save}>Save</button>
+    <section className={cn("rounded-[2rem] bg-lime-200 p-5 text-zinc-900 shadow-[0_6px_0_0_#a3e635] dark:bg-lime-300", fresh && "animate-pop")}>
+      <div className="flex items-center gap-3">
+        <span aria-hidden className="flex h-11 w-11 items-center justify-center rounded-2xl bg-zinc-900 text-xl text-lime-300">✓</span>
+        <div>
+          <p className="font-display text-xl font-extrabold leading-tight">{fresh ? "You're on the board!" : "You're checked in"}</p>
+          <p className="text-sm text-zinc-700">People can now find you and your projects.</p>
         </div>
-      ) : (
-        <button className="btn-ghost -mx-2 justify-start text-left text-sm" onClick={() => setEditing(true)}>
-          📍 {note || "Add where people can find you (shared only when you say “Let's talk first”)"}
-        </button>
-      )}
+      </div>
+
+      <div className="mt-4 rounded-2xl bg-white/70 p-3">
+        {editing ? (
+          <div className="flex gap-2">
+            <input className="input !bg-white" maxLength={80} autoFocus placeholder="Table 4, blue shirt" value={val} onChange={(e) => setVal(e.target.value)} aria-label="Where can people find you?" onKeyDown={(e) => e.key === "Enter" && save()} />
+            <button className="btn-primary shrink-0" onClick={save}>Save</button>
+          </div>
+        ) : (
+          <button className="flex w-full items-center gap-3 text-left" onClick={() => setEditing(true)}>
+            <Icon name="pin" className="h-5 w-5 shrink-0 text-brand" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-bold">{note || "Where can people find you?"}</span>
+              <span className="block text-xs text-zinc-600">{note ? "Tap to edit. Shared only after you say “Let's talk”." : "Shared only with founders you say “Let's talk” to."}</span>
+            </span>
+            <span className="text-xs font-bold text-brand">{note ? "Edit" : "Add"}</span>
+          </button>
+        )}
+      </div>
+
       {!ended && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <button className="btn-primary" onClick={onBring}>Bring a project</button>
-          <Link className="btn-secondary" href={`/me/projects/new?event=${code}`}>Post new project</Link>
+          <Link className="btn bg-zinc-900 text-white shadow-[0_4px_0_0_#000] hover:-translate-y-px active:shadow-none" href={`/me/projects/new?event=${code}`}>Post new</Link>
         </div>
       )}
     </section>
@@ -200,14 +342,14 @@ function CheckedInPanel({ eventId, userId, note, ended, onNote, onBring, code }:
 function BringProjectSheet({ open, onClose, eventId, code, userId, onAdded }: { open: boolean; onClose: () => void; eventId: string; code: string; userId: string; onAdded: () => void }) {
   const supabase = createClient();
   const { toast } = useApp();
-  const [mine, setMine] = useState<{ id: string; name: string; pitch: string }[] | null>(null);
+  const [mine, setMine] = useState<{ id: string; name: string; pitch: string; logo_url: string | null }[] | null>(null);
   const [here, setHere] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!open) return;
     (async () => {
       const [{ data: p }, { data: ep }] = await Promise.all([
-        supabase.from("projects").select("id,name,pitch").eq("owner_id", userId).order("created_at", { ascending: false }),
+        supabase.from("projects").select("id,name,pitch,logo_url").eq("owner_id", userId).order("created_at", { ascending: false }),
         supabase.from("event_projects").select("project_id").eq("event_id", eventId),
       ]);
       setMine(p ?? []);
@@ -224,24 +366,33 @@ function BringProjectSheet({ open, onClose, eventId, code, userId, onAdded }: { 
       ? await supabase.from("event_projects").delete().eq("event_id", eventId).eq("project_id", id)
       : await supabase.from("event_projects").insert({ event_id: eventId, project_id: id });
     if (error) { toast(error.message, { kind: "error" }); setHere(here); }
-    else { if (!on) toast("Project is on the board!", { kind: "success" }); onAdded(); }
+    else { if (!on) toast("Your project is on the board! 🚀", { kind: "success" }); onAdded(); }
   };
 
   return (
-    <Sheet open={open} onClose={onClose} title="Bring a project">
+    <Sheet open={open} onClose={onClose} title="Bring a project" subtitle="Tap to show it on tonight's board. Tap again to take it down.">
       {mine === null ? (
-        <div className="space-y-2"><div className="skeleton h-14" /><div className="skeleton h-14" /></div>
+        <div className="space-y-2"><div className="skeleton h-[72px] rounded-2xl" /><div className="skeleton h-[72px] rounded-2xl" /></div>
       ) : (
-        <div className="space-y-2">
-          {mine.length === 0 && <p className="muted text-sm">You haven&apos;t posted a project yet.</p>}
-          {mine.map((p) => (
-            <button key={p.id} onClick={() => toggle(p.id)} aria-pressed={here.has(p.id)}
-              className={cn("flex w-full items-center justify-between gap-3 rounded-xl p-3 text-left ring-1", here.has(p.id) ? "bg-brand-soft ring-brand dark:bg-violet-950" : "ring-zinc-200 dark:ring-zinc-800")}>
-              <span className="min-w-0"><span className="block truncate font-semibold">{p.name}</span><span className="muted block truncate text-sm">{p.pitch}</span></span>
-              <span className="shrink-0 text-sm font-semibold">{here.has(p.id) ? "✓ Showing" : "+ Show"}</span>
-            </button>
-          ))}
-          <Link href={`/me/projects/new?event=${code}`} className="btn-secondary w-full">+ Post a new project</Link>
+        <div className="space-y-2.5">
+          {mine.length === 0 && (
+            <EmptyState emoji="🚀" title="Nothing to bring yet" body="Post your first project. It takes about a minute and you can reuse it at every event." className="py-8" />
+          )}
+          {mine.map((p) => {
+            const on = here.has(p.id);
+            return (
+              <button key={p.id} onClick={() => toggle(p.id)} aria-pressed={on}
+                className={cn("flex w-full items-center gap-3 rounded-2xl p-3 text-left ring-1 ring-inset transition",
+                  on ? "bg-violet-50 ring-2 ring-brand dark:bg-violet-950/40 dark:ring-violet-400" : "bg-zinc-50 ring-zinc-200 hover:ring-zinc-300 dark:bg-zinc-800/50 dark:ring-zinc-700")}>
+                <ProjectLogo name={p.name} url={p.logo_url} size={44} />
+                <span className="min-w-0 flex-1"><span className="block truncate font-bold">{p.name}</span><span className="block truncate text-sm text-zinc-600 dark:text-zinc-400">{p.pitch}</span></span>
+                <span className={cn("flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-bold transition", on ? "bg-brand text-white" : "bg-white text-zinc-700 ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-700")}>
+                  {on ? "✓ On board" : "+ Show"}
+                </span>
+              </button>
+            );
+          })}
+          <Link href={`/me/projects/new?event=${code}`} className="btn-secondary mt-2 w-full">+ Post a new project</Link>
         </div>
       )}
     </Sheet>
@@ -283,45 +434,65 @@ function ProjectsTab({ projects, people, profile, code, checkedIn, ended, onPost
     return people.filter((a) => a.user_id !== profile.id && a.profile.skills.some((s) => needed.has(s.toLowerCase()))).length;
   }, [profile, projects, people]);
 
+  const anyFilter = mineOnly || openOnly || !!specialty || !!stage || !!q;
+  const clear = () => { setMineOnly(false); setSpecialty(""); setStage(""); setOpenOnly(false); setQ(""); };
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {smartMatch > 0 && (
-        <div className="card flex items-center justify-between gap-2 bg-brand-soft p-3 text-sm dark:bg-violet-950">
-          <span>✨ <b>{smartMatch}</b> {smartMatch === 1 ? "person here has" : "people here have"} the skills you need</span>
-          <button className="shrink-0 font-semibold text-brand underline dark:text-violet-300" onClick={onPeople}>See who</button>
-        </div>
+        <button onClick={onPeople} className="flex w-full items-center gap-3 rounded-3xl bg-zinc-950 p-4 text-left text-white transition hover:-translate-y-0.5 dark:bg-white dark:text-zinc-900">
+          <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-lime-300 text-xl text-zinc-900">✨</span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-display text-lg font-extrabold leading-tight">{smartMatch} {smartMatch === 1 ? "person here has" : "people here have"} the skills you need</span>
+            <span className="block text-sm opacity-70">Invite them before someone else does</span>
+          </span>
+          <Icon name="arrow" className="h-5 w-5 shrink-0" />
+        </button>
       )}
-      <input type="search" className="input" placeholder="Search projects, stacks, people…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search projects" />
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {mySkills.length > 0 && (
-          <button aria-pressed={mineOnly} onClick={() => setMineOnly(!mineOnly)} className={cn("chip min-h-[36px] shrink-0 px-3 ring-1", mineOnly ? "bg-brand text-white ring-brand" : "ring-zinc-300 dark:ring-zinc-700")}>Needs my skills</button>
-        )}
-        <button aria-pressed={openOnly} onClick={() => setOpenOnly(!openOnly)} className={cn("chip min-h-[36px] shrink-0 px-3 ring-1", openOnly ? "bg-brand text-white ring-brand" : "ring-zinc-300 dark:ring-zinc-700")}>Open only</button>
-        <select className="chip min-h-[36px] shrink-0 bg-transparent px-3 ring-1 ring-zinc-300 dark:ring-zinc-700" value={specialty} onChange={(e) => setSpecialty(e.target.value)} aria-label="Filter by specialty">
-          <option value="">Any specialty</option>
+
+      <div className="relative">
+        <Icon name="search" className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400" />
+        <input type="search" className="input pl-11" placeholder="Search projects, stacks, people" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search projects" />
+      </div>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+        {mySkills.length > 0 && <FilterChip on={mineOnly} onClick={() => setMineOnly(!mineOnly)}>✨ Needs my skills</FilterChip>}
+        <FilterChip on={openOnly} onClick={() => setOpenOnly(!openOnly)}>🙌 Open only</FilterChip>
+        <ChipSelect value={specialty} onChange={setSpecialty} label="Filter by role">
+          <option value="">Any role</option>
           {SKILLS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select className="chip min-h-[36px] shrink-0 bg-transparent px-3 ring-1 ring-zinc-300 dark:ring-zinc-700" value={stage} onChange={(e) => setStage(e.target.value)} aria-label="Filter by stage">
+        </ChipSelect>
+        <ChipSelect value={stage} onChange={setStage} label="Filter by stage">
           <option value="">Any stage</option>
           {STAGES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
+        </ChipSelect>
       </div>
-      {mineOnly && filtered && projects && filtered.length > 0 && filtered.length < projects.length && (
-        <p className="muted text-xs">
-          Showing {filtered.length} of {projects.length} projects that need your skills.{" "}
-          <button className="font-semibold text-brand underline dark:text-violet-300" onClick={() => setMineOnly(false)}>Show all</button>
+
+      {filtered && projects && projects.length > 0 && anyFilter && filtered.length > 0 && filtered.length < projects.length && (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Showing <b className="text-zinc-900 dark:text-white">{filtered.length}</b> of {projects.length}{mineOnly ? " that need your skills" : ""}.{" "}
+          <button className="font-bold text-brand dark:text-violet-300" onClick={clear}>Show all</button>
         </p>
       )}
+
       {filtered === null ? (
-        <div className="space-y-3"><ProjectCardSkeleton /><ProjectCardSkeleton /><ProjectCardSkeleton /></div>
+        <div className="grid gap-3 sm:grid-cols-2"><ProjectCardSkeleton /><ProjectCardSkeleton /><ProjectCardSkeleton /><ProjectCardSkeleton /></div>
       ) : projects!.length === 0 ? (
-        <Empty title="No projects yet. Be the first to post yours." body={!checkedIn && !ended ? "Check in above to post a project." : undefined} action={checkedIn && !ended && <button className="btn-primary" onClick={onPost}>Post your project</button>} />
+        <EmptyState
+          emoji="🌱"
+          title="No projects yet. Be the first!"
+          body={!checkedIn && !ended ? "Check in above, then put what you're building on the board." : "The first project up always gets the most attention."}
+          action={checkedIn && !ended && <button className="btn-primary" onClick={onPost}>Post your project</button>}
+        />
       ) : filtered.length === 0 ? (
-        <Empty title="Nothing matches these filters" body={mineOnly ? `No project here is looking for ${mySkills.join(", ")} yet. Turn off “Needs my skills” to see everything.` : undefined}
-          action={<button className="btn-secondary" onClick={() => { setMineOnly(false); setSpecialty(""); setStage(""); setOpenOnly(false); setQ(""); }}>Clear filters</button>} />
+        <EmptyState
+          emoji="🔍"
+          title="Nothing matches yet"
+          body={mineOnly ? `No one here is looking for ${mySkills.slice(0, 3).join(", ")} right now. New projects pop in all night.` : "Try fewer filters."}
+          action={<button className="btn-secondary" onClick={clear}>Show everything</button>}
+        />
       ) : (
-        <ul className="space-y-3">
-          {filtered.map((p) => <li key={p.id}><ProjectCard p={p} eventCode={code} /></li>)}
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {filtered.map((p) => <li key={p.id}><ProjectCard p={p} eventCode={code} highlight={p.owner_id === profile?.id} /></li>)}
         </ul>
       )}
     </div>
@@ -343,35 +514,49 @@ function PeopleTab({ people, profile, event, ended, checkedIn }: { people: Atten
   }, [people, skill, q]);
 
   return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        <input type="search" className="input" placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search people" />
-        <select className="input w-40" value={skill} onChange={(e) => setSkill(e.target.value)} aria-label="Filter by skill">
-          <option value="">All skills</option>
-          {SKILLS.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+    <div className="space-y-4">
+      <div className="relative">
+        <Icon name="search" className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400" />
+        <input type="search" className="input pl-11" placeholder="Search by name, skill or bio" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search people" />
+      </div>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+        <FilterChip on={!skill} onClick={() => setSkill("")}>Everyone</FilterChip>
+        {SKILLS.filter((s) => s !== "Other").map((s) => (
+          <FilterChip key={s} on={skill === s} onClick={() => setSkill(skill === s ? "" : s)}>{s}</FilterChip>
+        ))}
       </div>
       {filtered === null ? (
-        <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="skeleton h-16" />)}</div>
+        <div className="grid gap-3 sm:grid-cols-2">{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton h-[120px] rounded-3xl" />)}</div>
       ) : filtered.length === 0 ? (
-        <Empty title={people!.length ? "No one matches" : "No one has checked in yet"} />
+        <EmptyState emoji={people!.length ? "🤷" : "🚪"} title={people!.length ? "No one matches" : "No one's checked in yet"} body={people!.length ? "Try another skill." : "Faces will show up here as people arrive."} />
       ) : (
-        <ul className="space-y-2">
-          {filtered.map((a) => (
-            <li key={a.user_id} className="card flex items-center gap-3 p-3">
-              <Link href={`/u/${a.profile.username}`} className="flex min-w-0 flex-1 items-center gap-3">
-                <Avatar src={a.profile.avatar_url} name={a.profile.name} size={44} />
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold">{a.profile.name || a.profile.username}</span>
-                  <span className="muted block truncate text-xs">{a.profile.skills.join(" · ") || a.profile.bio}</span>
-                  {a.profile.looking_for?.length > 0 && <span className="block truncate text-[11px] text-violet-700 dark:text-violet-300">Looking for: {a.profile.looking_for.map((l) => LOOKING_LABEL[l] ?? l).join(", ")}</span>}
-                </span>
-              </Link>
-              {profile && checkedIn && a.user_id !== profile.id && !ended && (
-                <button className="btn-secondary shrink-0 px-3 text-xs" onClick={() => setInviting(a)}>Invite</button>
-              )}
-            </li>
-          ))}
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {filtered.map((a) => {
+            const me = a.user_id === profile?.id;
+            return (
+              <li key={a.user_id} className="card flex flex-col p-4">
+                <Link href={`/u/${a.profile.username}`} className="flex min-w-0 items-center gap-3">
+                  <Avatar src={a.profile.avatar_url} name={a.profile.name} size={48} />
+                  <span className="min-w-0">
+                    <span className="block truncate font-bold">{a.profile.name || a.profile.username}{me && <span className="ml-1.5 text-xs font-semibold text-brand dark:text-violet-300">you</span>}</span>
+                    <span className="block truncate text-xs text-zinc-500">@{a.profile.username}</span>
+                  </span>
+                </Link>
+                {a.profile.skills.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {a.profile.skills.slice(0, 3).map((s) => <span key={s} className="chip bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{s}</span>)}
+                    {a.profile.skills.length > 3 && <span className="chip text-zinc-500">+{a.profile.skills.length - 3}</span>}
+                  </div>
+                )}
+                {a.profile.looking_for?.length > 0 && (
+                  <p className="mt-2 truncate text-xs text-zinc-600 dark:text-zinc-400"><span className="font-semibold text-violet-700 dark:text-violet-300">Up for:</span> {a.profile.looking_for.map((l) => LOOKING_LABEL[l] ?? l).join(", ")}</p>
+                )}
+                {profile && checkedIn && !me && !ended && (
+                  <button className="btn-secondary btn-sm mt-3 w-full" onClick={() => setInviting(a)}>Invite to my project</button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       {profile && inviting && <InviteSheet attendee={inviting} profile={profile} event={event} onClose={() => setInviting(null)} />}
@@ -399,6 +584,7 @@ function InviteSheet({ attendee, profile, event, onClose }: { attendee: Attendee
 
   const project = mine?.find((p) => p.id === projectId);
   const slots = project ? openSlots(project) : [];
+  const name = attendee.profile.name || attendee.profile.username;
 
   const send = async () => {
     setBusy(true);
@@ -408,34 +594,31 @@ function InviteSheet({ attendee, profile, event, onClose }: { attendee: Attendee
     setBusy(false);
     if (error) return toast(error.message, { kind: "error" });
     notify(data as string);
-    toast(`Invite sent to ${attendee.profile.name}`, { kind: "success" });
+    toast(`Invite sent to ${name} ✉️`, { kind: "success" });
     onClose();
   };
 
   return (
-    <Sheet open onClose={onClose} title={`Invite ${attendee.profile.name || attendee.profile.username}`}>
-      {mine === null ? <div className="skeleton h-24" /> : mine.length === 0 ? (
-        <p className="muted text-sm">You need a project that&apos;s open to collaborators to invite people. <Link className="text-brand underline" href={`/me/projects/new?event=${event.code}`}>Post one</Link></p>
+    <Sheet open onClose={onClose} title={`Invite ${name}`} subtitle={attendee.profile.skills.slice(0, 4).join(" · ") || undefined}>
+      {mine === null ? <div className="skeleton h-40 rounded-2xl" /> : mine.length === 0 ? (
+        <EmptyState emoji="📣" title="You need an open project first" body="Invites go to projects that are open to collaborators." className="py-8"
+          action={<Link className="btn-primary" href={`/me/projects/new?event=${event.code}`}>Post a project</Link>} />
       ) : (
-        <div className="space-y-3">
-          <div>
-            <label className="label" htmlFor="inv-proj">Project</label>
+        <div className="space-y-4">
+          <Field label="Project" htmlFor="inv-proj">
             <select id="inv-proj" className="input" value={projectId} onChange={(e) => { setProjectId(e.target.value); setSlotId(""); }}>
               {mine.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="inv-slot">Role</label>
+          </Field>
+          <Field label="Role" htmlFor="inv-slot">
             <select id="inv-slot" className="input" value={slotId} onChange={(e) => setSlotId(e.target.value)}>
               <option value="">General collaborator</option>
               {slots.map((s) => <option key={s.id} value={s.id}>{s.specialty}</option>)}
             </select>
-          </div>
-          <div>
-            <label className="label" htmlFor="inv-msg">Message (optional)</label>
-            <textarea id="inv-msg" className="input" rows={3} maxLength={280} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Why you'd love to work together" />
-            <p className="muted text-right text-xs">{message.length}/280</p>
-          </div>
+          </Field>
+          <Field label="Message" optional htmlFor="inv-msg" counter={{ value: message.length, max: 280 }}>
+            <textarea id="inv-msg" className="input" rows={3} maxLength={280} value={message} onChange={(e) => setMessage(e.target.value)} placeholder={`Why you'd love to build with ${name.split(" ")[0]}`} />
+          </Field>
           <button className="btn-primary w-full" disabled={busy || !projectId} onClick={send}>{busy ? "Sending…" : "Send invite"}</button>
         </div>
       )}
@@ -473,16 +656,20 @@ function ActivityTab({ eventId, code, profile, projects }: { eventId: string; co
   }, [supabase, load, eventId, profile.id]);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-7">
       <section>
-        <h2 className="mb-2 font-semibold">My projects here</h2>
-        {myProjects.length === 0 ? <p className="muted text-sm">You haven&apos;t brought a project to this event yet.</p> : (
+        <SectionTitle>My projects here</SectionTitle>
+        {myProjects.length === 0 ? (
+          <p className="rounded-2xl bg-zinc-100 p-4 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">You haven&apos;t brought a project tonight. Founders with a project on the board get way more conversations.</p>
+        ) : (
           <ul className="space-y-2">
             {myProjects.map((p) => (
               <li key={p.id}>
-                <Link href={`/p/${p.id}?e=${code}`} className="card flex items-center justify-between p-3">
-                  <span className="font-medium">{p.name}</span>
-                  {pending[p.id] ? <span className="chip bg-brand text-white">{pending[p.id]} pending</span> : <span className="muted text-xs">No pending requests</span>}
+                <Link href={`/p/${p.id}?e=${code}`} className="card flex items-center gap-3 p-3 transition hover:ring-violet-300">
+                  <ProjectLogo name={p.name} url={p.logo_url} size={40} />
+                  <span className="min-w-0 flex-1 truncate font-bold">{p.name}</span>
+                  {pending[p.id] ? <span className="chip bg-brand text-white">{pending[p.id]} waiting</span> : <span className="text-xs text-zinc-500">No requests yet</span>}
+                  <Icon name="arrow" className="h-4 w-4 text-zinc-400" />
                 </Link>
               </li>
             ))}
@@ -490,15 +677,21 @@ function ActivityTab({ eventId, code, profile, projects }: { eventId: string; co
         )}
       </section>
       <section>
-        <h2 className="mb-2 font-semibold">My requests &amp; invites</h2>
-        {mine === null ? <div className="skeleton h-16" /> : mine.length === 0 ? <p className="muted text-sm">Nothing yet. Find a project and tap “Count me in”.</p> : (
+        <SectionTitle>My requests &amp; invites</SectionTitle>
+        {mine === null ? <div className="skeleton h-16 rounded-2xl" /> : mine.length === 0 ? (
+          <p className="rounded-2xl bg-zinc-100 p-4 text-sm text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">Nothing yet. Find a project you like and tap &ldquo;Count me in&rdquo;.</p>
+        ) : (
           <ul className="space-y-2">
             {mine.map((r) => (
               <li key={r.id}>
-                <Link href={r.status === "accepted" ? `/space/${r.project_id}` : `/p/${r.project_id}?e=${code}`} className="card flex items-center justify-between gap-2 p-3">
+                <Link href={r.status === "accepted" ? `/space/${r.project_id}` : `/p/${r.project_id}?e=${code}`} className="card flex items-center justify-between gap-3 p-3 transition hover:ring-violet-300">
                   <span className="min-w-0">
-                    <span className="block truncate font-medium">{r.project?.name}</span>
-                    <span className="muted text-xs">{r.direction === "invite" ? "Invited you" : "You requested"}{r.slot ? ` · ${r.slot.specialty}` : ""}{r.status === "pending" && r.direction === "invite" ? " · respond in Inbox" : ""}{r.status === "accepted" ? " · open space →" : ""}</span>
+                    <span className="block truncate font-bold">{r.project?.name}</span>
+                    <span className="block truncate text-xs text-zinc-500">
+                      {r.direction === "invite" ? "Invited you" : "You asked"}{r.slot ? ` · ${r.slot.specialty}` : ""}
+                      {r.status === "pending" && r.direction === "invite" ? " · reply in Inbox" : ""}
+                      {r.status === "accepted" ? " · open project space" : ""}
+                    </span>
                   </span>
                   <StatusBadge status={r.status} />
                 </Link>

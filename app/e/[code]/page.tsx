@@ -2,23 +2,28 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getProfile } from "@/lib/supabase/server";
 import type { EventRow } from "@/lib/types";
-import { Empty } from "@/components/ui/Empty";
+import { EmptyState } from "@/components/b/ui";
 import { EventView } from "@/components/b/EventView";
 
-export default async function EventPage({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ paid?: string }> }) {
+export default async function EventPage({ params, searchParams }: { params: Promise<{ code: string }>; searchParams: Promise<{ paid?: string; ticket?: string; checkin?: string }> }) {
   const { code: rawCode } = await params;
-  const { paid } = await searchParams;
+  const { paid, ticket: ticketParam, checkin: checkinParam } = await searchParams;
   const code = rawCode.toUpperCase();
   const { supabase, user, profile } = await getProfile();
 
   const { data: found } = await supabase.rpc("event_by_code", { p_code: code });
   const meta = (found as { id: string; name: string; visibility: string; can_view: boolean }[] | null)?.[0];
   if (!meta) {
-    return <Empty title="Event not found" body={`No event with code ${code}. Double-check the code on the screen.`} action={<Link className="btn-primary" href="/">Try another code</Link>} />;
+    return (
+      <EmptyState emoji="🎟️" title="Hmm, that code doesn't ring a bell" className="mt-8"
+        body={<>No event with code <b className="font-mono">{code}</b>. Double-check the code on the screen or the poster.</>}
+        action={<div className="flex gap-2"><Link className="btn-primary" href="/">Try another code</Link><Link className="btn-secondary" href="/scan">Scan QR</Link></div>} />
+    );
   }
   if (!meta.can_view) {
     return (
-      <Empty
+      <EmptyState
+        emoji="💌" className="mt-8"
         title={`${meta.name} is invite-only`}
         body={user ? "Your account's email isn't on the guest list. Ask the organizer to invite you." : "Sign in with the email you were invited with."}
         action={!user && <Link className="btn-primary" href={`/login?next=/e/${code}`}>Sign in</Link>}
@@ -33,7 +38,7 @@ export default async function EventPage({ params, searchParams }: { params: Prom
     user ? supabase.from("event_tickets").select("status").eq("event_id", meta.id).eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
     supabase.from("event_sponsors").select("*").eq("event_id", meta.id).order("created_at"),
   ]);
-  if (!event) return <Empty title="Event not found" />;
+  if (!event) return <EmptyState emoji="🎟️" title="Event not found" className="mt-8" />;
 
   return (
     <EventView
@@ -41,7 +46,8 @@ export default async function EventPage({ params, searchParams }: { params: Prom
       profile={profile}
       initialCheckin={checkin as { location_note: string | null } | null}
       hasTicket={ticket?.status === "paid"}
-      justPaid={paid === "1"}
+      justPaid={paid === "1" || ticketParam === "success"}
+      highlightCheckin={checkinParam === "1"}
       sponsors={(sponsors ?? []) as { id: string; name: string; logo_url: string | null; url: string | null; tier: string }[]}
     />
   );

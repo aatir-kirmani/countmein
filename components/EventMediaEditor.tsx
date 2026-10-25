@@ -62,10 +62,16 @@ export function EventMediaEditor({
   return (
     <fieldset className="space-y-4">
       <div>
-        <legend className="label">
-          Event photos <span className="text-red-600">*</span>
-          <span className="ml-1 font-normal text-zinc-500 dark:text-zinc-400">At least 1, up to {MAX_EVENT_IMAGES}. The first one is the cover.</span>
-        </legend>
+        <legend className="label">Event photos <span className="text-brand dark:text-violet-400" aria-hidden>*</span></legend>
+        <p className="hint -mt-1 mb-3">At least 1, up to {MAX_EVENT_IMAGES}. The first one is the cover. Tap ★ to change it.</p>
+        {images.length === 0 && uploading === 0 ? (
+          <label className="flex min-h-[176px] cursor-pointer flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-zinc-300 bg-zinc-50 px-6 text-center transition hover:border-brand hover:bg-violet-50/50 dark:border-zinc-700 dark:bg-zinc-900/50 dark:hover:bg-violet-950/20">
+            <span aria-hidden className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand text-2xl text-white shadow-[0_3px_0_0_#4c1d95]">＋</span>
+            <span className="font-bold">Add your cover photo</span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">JPG, PNG or WebP, up to {MAX_IMAGE_MB} MB each. Pick several at once.</span>
+            <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { if (e.target.files?.length) addImages(e.target.files); e.target.value = ""; }} />
+          </label>
+        ) : (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {images.map((url, i) => (
             <div key={url} className={`group relative aspect-square overflow-hidden rounded-xl ring-2 ${i === 0 ? "ring-brand" : "ring-transparent"}`}>
@@ -84,24 +90,24 @@ export function EventMediaEditor({
           {images.length + uploading < MAX_EVENT_IMAGES && (
             <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-zinc-300 text-center text-xs font-semibold text-zinc-600 transition hover:border-brand hover:text-brand dark:border-zinc-700 dark:text-zinc-400">
               <span className="text-2xl" aria-hidden>＋</span>
-              {images.length ? "Add photos" : "Add cover photo"}
+              Add more
               <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => { if (e.target.files?.length) addImages(e.target.files); e.target.value = ""; }} />
             </label>
           )}
         </div>
+        )}
       </div>
 
       <div>
-        <span className="label">
-          Cover video <span className="font-normal text-zinc-500 dark:text-zinc-400">Optional, 1 video, max {MAX_VIDEO_MB} MB. Plays muted at the top of the event page.</span>
-        </span>
+        <span className="label">Cover video <span className="text-xs font-medium text-zinc-400">optional</span></span>
+        <p className="hint -mt-1 mb-3">One clip, up to {MAX_VIDEO_MB} MB. It plays muted at the top of your event page.</p>
         {video ? (
           <div className="relative overflow-hidden rounded-xl bg-black">
             <video src={video} className="aspect-video w-full object-cover" controls muted playsInline preload="metadata" />
             <button type="button" onClick={() => onChange({ images, video: null })} className="absolute right-2 top-2 rounded-lg bg-black/60 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur">Remove video</button>
           </div>
         ) : (
-          <label className={`flex min-h-[64px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-zinc-300 text-sm font-semibold text-zinc-600 transition hover:border-brand hover:text-brand dark:border-zinc-700 dark:text-zinc-400 ${videoBusy ? "pointer-events-none opacity-60" : ""}`}>
+          <label className={`flex min-h-[64px] cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-zinc-300 text-sm font-semibold text-zinc-600 transition hover:border-brand hover:text-brand dark:border-zinc-700 dark:text-zinc-400 ${videoBusy ? "pointer-events-none opacity-60" : ""}`}>
             <span aria-hidden>🎬</span> {videoBusy ? "Uploading video…" : "Add a cover video"}
             <input type="file" accept="video/mp4,video/quicktime,video/webm" className="sr-only" onChange={(e) => { if (e.target.files?.[0]) addVideo(e.target.files[0]); e.target.value = ""; }} />
           </label>
