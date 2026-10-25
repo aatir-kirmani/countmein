@@ -35,6 +35,22 @@ insert into projects (id, owner_id, name, pitch, openness) values ('20000000-000
 insert into project_slots (id, project_id, specialty) values ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'Design/UI/UX');
 insert into event_projects (event_id, project_id) values ('10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001');
 
+-- Inserts that read the row back (what the app does via .select()) must work.
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000d');
+do $$ declare nid uuid; begin
+  insert into events (organizer_id, name, starts_at, ends_at, cover_url, visibility)
+  values ('00000000-0000-0000-0000-00000000000d', 'Returning test', now() + interval '1 day', now() + interval '1 day 2 hours', 'x', 'invite_only')
+  returning id into nid;
+  if nid is null then raise exception 'FAIL: event insert returning'; end if;
+  raise notice 'ok: organizer can create an event and read it back (even invite-only)';
+end $$;
+select pg_temp.as_user('00000000-0000-0000-0000-00000000000a');
+do $$ declare nid uuid; begin
+  insert into projects (owner_id, name, pitch) values ('00000000-0000-0000-0000-00000000000a', 'Returning', 'p') returning id into nid;
+  if nid is null then raise exception 'FAIL: project insert returning'; end if;
+  raise notice 'ok: founder can create a project and read it back';
+end $$;
+
 -- Stranger (not checked in) cannot see the board of a non-public event.
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000c');
 select pg_temp.assert((select count(*) = 0 from event_projects where event_id = '10000000-0000-0000-0000-000000000001'), 'non-checked-in user cannot see unlisted board');
