@@ -54,7 +54,7 @@ npx vercel env add ...   # add every variable above for Production
 npx vercel --prod
 ```
 
-`vercel.json` registers an hourly cron at `/api/cron`. Each run expires requests 48 hours after an event ends, marks finished events as ended, and sends recap emails.
+`vercel.json` registers a daily cron at `/api/cron` (03:00 UTC; Vercel Hobby allows daily crons only, Pro can switch to hourly). Each run expires requests 48 hours after an event ends, marks finished events as ended, and sends recap emails.
 
 ## 5. Stripe (paid tickets)
 
